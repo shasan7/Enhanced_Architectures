@@ -288,7 +288,7 @@ class WindowDepartition(nn.Module):
         return x
 
 
-class PartitionAttentionLayer(nn.Module):
+class SpatialAttentionLayer(nn.Module):
     """
     Layer for partitioning the input tensor into non-overlapping windows and applying attention to each window.
 
@@ -391,10 +391,114 @@ class PartitionAttentionLayer(nn.Module):
 
         return x
 
+class ChannelAttentionLayer(nn.Module):
+    """
+    Layer for partitioning the input tensor into non-overlapping windows and applying attention to each window.
+
+    Args:
+        in_channels (int): Number of input channels.
+        head_dim (int): Dimension of each attention head.
+        partition_size (int): Size of the partitions.
+        partition_type (str): Type of partitioning to use. Can be either "grid" or "window".
+        grid_size (Tuple[int, int]): Size of the grid to partition the input tensor into.
+        mlp_ratio (int): Ratio of the  feature size expansion in the MLP layer.
+        activation_layer (Callable[..., nn.Module]): Activation function to use.
+        norm_layer (Callable[..., nn.Module]): Normalization function to use.
+        attention_dropout (float): Dropout probability for the attention layer.
+        mlp_dropout (float): Dropout probability for the MLP layer.
+        p_stochastic_dropout (float): Probability of dropping out a partition.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        head_dim: int,
+        # partitioning parameters
+        partition_size: int,
+        partition_type: str,
+        # grid size needs to be known at initialization time
+        # because we need to know hamy relative offsets there are in the grid
+        grid_size: tuple[int, int],
+        mlp_ratio: int,
+        activation_layer: Callable[..., nn.Module],
+        norm_layer: Callable[..., nn.Module],
+        attention_dropout: float,
+        mlp_dropout: float,
+        p_stochastic_dropout: float,
+    ) -> None:
+        super().__init__()
+
+        self.n_heads = in_channels // head_dim
+        self.head_dim = head_dim
+        self.n_partitions = grid_size[0] // partition_size
+        self.partition_type = partition_type
+        self.grid_size = grid_size
+
+        if partition_type not in ["grid", "window"]:
+            raise ValueError("partition_type must be either 'grid' or 'window'")
+
+        if partition_type == "window":
+            self.p, self.g = partition_size, self.n_partitions
+        else:
+            self.p, self.g = self.n_partitions, partition_size
+
+        self.partition_op = WindowPartition()
+        self.departition_op = WindowDepartition()
+        self.partition_swap = SwapAxes(-2, -3) if partition_type == "grid" else nn.Identity()
+        self.departition_swap = SwapAxes(-2, -3) if partition_type == "grid" else nn.Identity()
+
+        self.attn_layer = nn.Sequential(
+            norm_layer(in_channels),
+            # it's always going to be partition_size ** 2 because
+            # of the axis swap in the case of grid partitioning
+            RelativePositionalMultiHeadAttention(in_channels, head_dim, partition_size**2),
+            nn.Dropout(attention_dropout),
+        )
+
+        # pre-normalization similar to transformer layers
+        self.mlp_layer = nn.Sequential(
+            nn.LayerNorm(in_channels),
+            nn.Linear(in_channels, in_channels * mlp_ratio),
+            activation_layer(),
+            nn.Linear(in_channels * mlp_ratio, in_channels),
+            nn.Dropout(mlp_dropout),
+        )
+
+        # layer scale factors
+        self.stochastic_dropout = StochasticDepth(p_stochastic_dropout, mode="row")
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x (Tensor): Input tensor with expected layout of [B, C, H, W].
+        Returns:
+            Tensor: Output tensor with expected layout of [B, C, H, W].
+        """
+
+        # Undefined behavior if H or W are not divisible by p
+        # https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L766
+        gh, gw = self.grid_size[0] // self.p, self.grid_size[1] // self.p
+        torch._assert(
+            self.grid_size[0] % self.p == 0 and self.grid_size[1] % self.p == 0,
+            "Grid size must be divisible by partition size. Got grid size of {} and partition size of {}".format(
+                self.grid_size, self.p
+            ),
+        )
+
+        x = x.transpose(0, 2, 3, 1)
+        x = self.partition_op(x, self.p)
+        x = self.partition_swap(x)
+        x = x + self.stochastic_dropout(self.attn_layer(x))
+        x = x + self.stochastic_dropout(self.mlp_layer(x))
+        x = self.departition_swap(x)
+        x = self.departition_op(x, self.p, gh, gw)
+
+        return x
+
 
 class MaxVitLayer(nn.Module):
     """
-    MaxVit layer consisting of a MBConv layer followed by a PartitionAttentionLayer with `window` and a PartitionAttentionLayer with `grid`.
+    MaxVit layer consisting of a MBConv layer followed by a SpatialAttentionLayer with `window` and a SpatialAttentionLayer with `grid`.
 
     Args:
         in_channels (int): Number of input channels.
@@ -450,7 +554,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         # attention layers, block -> grid
-        layers["window_attention"] = PartitionAttentionLayer(
+        layers["window_attention"] = SpatialAttentionLayer(
             in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
@@ -463,7 +567,33 @@ class MaxVitLayer(nn.Module):
             mlp_dropout=mlp_dropout,
             p_stochastic_dropout=p_stochastic_dropout,
         )
-        layers["grid_attention"] = PartitionAttentionLayer(
+        layers["grid_attention"] = SpatialAttentionLayer(
+            in_channels=out_channels,
+            head_dim=head_dim,
+            partition_size=partition_size,
+            partition_type="grid",
+            grid_size=grid_size,
+            mlp_ratio=mlp_ratio,
+            activation_layer=activation_layer,
+            norm_layer=nn.LayerNorm,
+            attention_dropout=attention_dropout,
+            mlp_dropout=mlp_dropout,
+            p_stochastic_dropout=p_stochastic_dropout,
+        )
+        layers["window_attention"] = ChannelAttentionLayer(
+            in_channels=out_channels,
+            head_dim=head_dim,
+            partition_size=partition_size,
+            partition_type="window",
+            grid_size=grid_size,
+            mlp_ratio=mlp_ratio,
+            activation_layer=activation_layer,
+            norm_layer=nn.LayerNorm,
+            attention_dropout=attention_dropout,
+            mlp_dropout=mlp_dropout,
+            p_stochastic_dropout=p_stochastic_dropout,
+        )
+        layers["grid_attention"] = ChannelAttentionLayer(
             in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
@@ -477,39 +607,6 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         self.layers = nn.Sequential(layers)
-
-        # Additional channel attention setup
-        ch_h, ch_w = find_2d_factors(out_channels)  # Pseudo-resolution for channels (C)
-        N = grid_size[0] * grid_size[1]
-        self.padded_N = math.ceil(N / head_dim) * head_dim
-        self.channel_window_attention = PartitionAttentionLayer(
-            in_channels=self.padded_N,
-            head_dim=head_dim,
-            partition_size=partition_size,
-            partition_type="window",
-            grid_size=(ch_h, ch_w),
-            mlp_ratio=mlp_ratio,
-            activation_layer=activation_layer,
-            norm_layer=nn.LayerNorm,
-            attention_dropout=attention_dropout,
-            mlp_dropout=mlp_dropout,
-            p_stochastic_dropout=p_stochastic_dropout,
-        )
-        self.channel_grid_attention = PartitionAttentionLayer(
-            in_channels=self.padded_N,
-            head_dim=head_dim,
-            partition_size=partition_size,
-            partition_type="grid",
-            grid_size=(ch_h, ch_w),
-            mlp_ratio=mlp_ratio,
-            activation_layer=activation_layer,
-            norm_layer=nn.LayerNorm,
-            attention_dropout=attention_dropout,
-            mlp_dropout=mlp_dropout,
-            p_stochastic_dropout=p_stochastic_dropout,
-        )
-        self.grid_size = grid_size
-        self.head_dim = head_dim
 
     def forward(self, x: Tensor) -> Tensor:
         """
