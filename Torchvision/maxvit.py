@@ -644,7 +644,7 @@ class MaxVit(nn.Module):
                 input_channels,
                 stem_channels,
                 3,
-                stride=2,
+                stride=1,
                 norm_layer=norm_layer,
                 activation_layer=activation_layer,
                 bias=False,
@@ -656,7 +656,7 @@ class MaxVit(nn.Module):
         )
 
         # account for stem stride
-        input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
+        input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=1, padding=1)
         self.partition_size = partition_size
 
         # blocks
