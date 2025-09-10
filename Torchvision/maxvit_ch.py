@@ -40,14 +40,6 @@ def _make_block_input_shapes(input_size: tuple[int, int], n_blocks: int) -> list
     return shapes
 
 
-def find_2d_factors(dim: int):
-    sqrt_dim = int(math.sqrt(dim))
-    for i in range(sqrt_dim, 0, -1):
-        if dim % i == 0:
-            return i, dim // i  # Returns (h, w) where h <= w
-    return 1, dim  # Fallback to 1D (treat as a single row)
-
-
 def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     coords = torch.stack(torch.meshgrid([torch.arange(height), torch.arange(width)], indexing="ij"))
     coords_flat = torch.flatten(coords, 1)
@@ -498,7 +490,7 @@ class ChannelAttentionLayer(nn.Module):
 
 class MaxVitLayer(nn.Module):
     """
-    MaxVit layer consisting of a MBConv layer followed by a SpatialAttentionLayer with `window` and a SpatialAttentionLayer with `grid`.
+    MaxVit layer consisting of a MBConv layer followed by a Attention Layer with `window` and a Attention Layer with `grid`.
 
     Args:
         in_channels (int): Number of input channels.
@@ -616,28 +608,6 @@ class MaxVitLayer(nn.Module):
             Tensor: Output tensor of shape (B, C, H, W).
         """
         x = self.layers(x)
-
-        # Additional channel attention
-        B, C, H, W = x.shape
-        N = H * W
-        pad = self.padded_N - N
-        # Transpose and flatten to (B, N, C)
-        x_t = x.permute(0, 2, 3, 1).reshape(B, N, C)
-        if pad > 0:
-            x_t = F.pad(x_t, (0, 0, 0, pad, 0, 0))  # Pad along dim=1 (N)
-        # Reshape to (B, padded_N, ch_h, ch_w)
-        ch_h, ch_w = find_2d_factors(C)
-        x_channel = x_t.view(B, self.padded_N, ch_h, ch_w).contiguous()
-        # Apply channel attentions
-        x_channel = self.channel_window_attention(x_channel)
-        x_channel = self.channel_grid_attention(x_channel)
-        # Back to (B, padded_N, C)
-        x_t = x_channel.view(B, self.padded_N, C)
-        if pad > 0:
-            x_t = x_t[:, :N, :]  # Remove padding
-        # Back to (B, C, H, W)
-        x = x_t.reshape(B, H, W, C).permute(0, 3, 1, 2)
-
         return x
 
 
