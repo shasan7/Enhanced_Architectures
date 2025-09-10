@@ -547,7 +547,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         # attention layers, block -> grid
-        layers["window_attention"] = SpatialAttentionLayer(
+        layers["spatial_window_attention"] = SpatialAttentionLayer(
             in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
@@ -560,7 +560,7 @@ class MaxVitLayer(nn.Module):
             mlp_dropout=mlp_dropout,
             p_stochastic_dropout=p_stochastic_dropout,
         )
-        layers["grid_attention"] = SpatialAttentionLayer(
+        layers["spatial_grid_attention"] = SpatialAttentionLayer(
             in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
@@ -573,7 +573,7 @@ class MaxVitLayer(nn.Module):
             mlp_dropout=mlp_dropout,
             p_stochastic_dropout=p_stochastic_dropout,
         )
-        layers["window_attention"] = ChannelAttentionLayer(
+        layers["channel_window_attention"] = ChannelAttentionLayer(
             in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
@@ -586,7 +586,7 @@ class MaxVitLayer(nn.Module):
             mlp_dropout=mlp_dropout,
             p_stochastic_dropout=p_stochastic_dropout,
         )
-        layers["grid_attention"] = ChannelAttentionLayer(
+        layers["channel_grid_attention"] = ChannelAttentionLayer(
             in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
