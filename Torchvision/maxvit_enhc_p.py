@@ -121,7 +121,7 @@ class MBConv(nn.Module):
             groups=mid_channels,
             inplace=None,
         )
-        _layers["squeeze_excitation"] = SqueezeExcitation(mid_channels, sqz_channels, activation=nn.SiLU)
+        # _layers["squeeze_excitation"] = SqueezeExcitation(mid_channels, sqz_channels, activation=nn.SiLU)
         _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, bias=True)
 
         self.layers = nn.Sequential(_layers)
