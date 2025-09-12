@@ -110,7 +110,7 @@ class MBConv(nn.Module):
             norm_layer=norm_layer,
             inplace=None,
         )
-        _layers["conv_b"] = Conv2dNormActivation(
+        _layers["conv_b"] = torch.cat([Conv2dNormActivation(
             mid_channels,
             mid_channels,
             kernel_size=3,
@@ -120,8 +120,37 @@ class MBConv(nn.Module):
             norm_layer=norm_layer,
             groups=mid_channels,
             inplace=None,
-        )
-        # _layers["squeeze_excitation"] = SqueezeExcitation(mid_channels, sqz_channels, activation=nn.SiLU)
+        ), Conv2dNormActivation(
+            mid_channels,
+            mid_channels,
+            kernel_size=3,
+            stride=stride*2,
+            padding=1*2,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=mid_channels,
+            inplace=None,
+        ), Conv2dNormActivation(
+            mid_channels,
+            mid_channels,
+            kernel_size=3,
+            stride=stride*3,
+            padding=1*3,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=mid_channels,
+            inplace=None,
+        ), Conv2dNormActivation(
+            mid_channels,
+            mid_channels,
+            kernel_size=3,
+            stride=stride*4,
+            padding=1*4,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=mid_channels,
+            inplace=None,
+        )], dim=1)
         _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, bias=True)
 
         self.layers = nn.Sequential(_layers)
@@ -609,7 +638,7 @@ class MaxVit(nn.Module):
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
         squeeze_ratio: float = 0.25,
-        expansion_ratio: float = 4,
+        expansion_ratio: float = 1,
         # transformer parameters
         mlp_ratio: int = 4,
         mlp_dropout: float = 0.0,
