@@ -609,7 +609,7 @@ class MaxVit(nn.Module):
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
         squeeze_ratio: float = 0.25,
-        expansion_ratio: float = 4,
+        expansion_ratio: float = 1,
         # transformer parameters
         mlp_ratio: int = 4,
         mlp_dropout: float = 0.0,
