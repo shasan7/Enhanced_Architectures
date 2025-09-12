@@ -50,6 +50,70 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     relative_coords[:, :, 0] *= 2 * width - 1
     return relative_coords.sum(-1)
 
+class ParallelDilatedConv(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=stride):
+        super().__init__()
+
+        # Define 4 parallel branches with different dilation and padding
+        self.branch1 = Conv2dNormActivation(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            dilation=1,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=in_channels,
+            inplace=None,
+        )
+        self.branch2 = Conv2dNormActivation(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=2,
+            dilation=2,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=in_channels,
+            inplace=None,
+        )
+        self.branch3 = Conv2dNormActivation(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=3,
+            dilation=3,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=in_channels,
+            inplace=None,
+        )
+        self.branch4 = Conv2dNormActivation(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=4,
+            dilation=4,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            groups=in_channels,
+            inplace=None,
+        )
+
+    def forward(self, x):
+        # Apply all 4 branches in parallel
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        x3 = self.branch3(x)
+        x4 = self.branch4(x)
+
+        # Concatenate along the channel dimension
+        return torch.cat([x1, x2, x3, x4], dim=1)
+
 
 class MBConv(nn.Module):
     """MBConv: Mobile Inverted Residual Bottleneck.
@@ -110,48 +174,12 @@ class MBConv(nn.Module):
             norm_layer=norm_layer,
             inplace=None,
         )
-        _layers["conv_b"] = torch.cat([Conv2dNormActivation(
+        _layers["conv_b"] = ParallelDilatedConv(
             mid_channels,
             mid_channels,
-            kernel_size=3,
             stride=stride,
-            padding=1,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            groups=mid_channels,
-            inplace=None,
-        ), Conv2dNormActivation(
-            mid_channels,
-            mid_channels,
-            kernel_size=3,
-            stride=stride*2,
-            padding=1*2,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            groups=mid_channels,
-            inplace=None,
-        ), Conv2dNormActivation(
-            mid_channels,
-            mid_channels,
-            kernel_size=3,
-            stride=stride*3,
-            padding=1*3,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            groups=mid_channels,
-            inplace=None,
-        ), Conv2dNormActivation(
-            mid_channels,
-            mid_channels,
-            kernel_size=3,
-            stride=stride*4,
-            padding=1*4,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            groups=mid_channels,
-            inplace=None,
-        )], dim=1)
-        _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, bias=True)
+        )
+        _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels*4, out_channels=out_channels, kernel_size=1, bias=True)
 
         self.layers = nn.Sequential(_layers)
 
