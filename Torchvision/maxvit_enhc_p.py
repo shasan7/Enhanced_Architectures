@@ -100,30 +100,17 @@ class MBConv(nn.Module):
 
         _layers = OrderedDict()
         _layers["pre_norm"] = norm_layer(in_channels)
-        _layers["conv_a"] = Conv2dNormActivation(
-            in_channels,
-            mid_channels,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            inplace=None,
-        )
         _layers["conv_b"] = Conv2dNormActivation(
-            mid_channels,
-            mid_channels,
+            in_channels,
+            out_channels,
             kernel_size=3,
             stride=stride,
             padding=1,
             activation_layer=activation_layer,
             norm_layer=norm_layer,
-            groups=mid_channels,
+            groups=1,
             inplace=None,
         )
-        # _layers["squeeze_excitation"] = SqueezeExcitation(mid_channels, sqz_channels, activation=nn.SiLU)
-        _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, bias=True)
-
         self.layers = nn.Sequential(_layers)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -609,7 +596,7 @@ class MaxVit(nn.Module):
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
         squeeze_ratio: float = 0.25,
-        expansion_ratio: float = 1,
+        expansion_ratio: float = 4,
         # transformer parameters
         mlp_ratio: int = 4,
         mlp_dropout: float = 0.0,
