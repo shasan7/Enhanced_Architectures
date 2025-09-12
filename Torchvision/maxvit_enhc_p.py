@@ -51,7 +51,7 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     return relative_coords.sum(-1)
 
 class ParallelDilatedConv(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=stride):
+    def __init__(self, in_channels, out_channels, stride: int, activation_layer: Callable[..., nn.Module], norm_layer: Callable[..., nn.Module],):
         super().__init__()
 
         # Define 4 parallel branches with different dilation and padding
@@ -178,6 +178,8 @@ class MBConv(nn.Module):
             mid_channels,
             mid_channels,
             stride=stride,
+            activation_layer=activation_layer, 
+            norm_layer=norm_layer,
         )
         _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels*4, out_channels=out_channels, kernel_size=1, bias=True)
 
