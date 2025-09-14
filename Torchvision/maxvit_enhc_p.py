@@ -97,15 +97,17 @@ class MBConv(nn.Module):
         )
         _layers["conv_b"] = Conv2dNormActivation(
             bn_size * growth_rate,
-            growth_rate,
+            bn_size * growth_rate,
             kernel_size=3,
             stride=stride,
             padding=1,
             activation_layer=activation_layer,
             norm_layer=norm_layer,
-            groups=1,
+            groups=bn_size * growth_rate,
             inplace=None,
         )
+        _layers["conv_c"] = nn.Conv2d(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, bias=True)
+        
         self.layers = nn.Sequential(_layers)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -410,6 +412,18 @@ class MaxVitLayer(nn.Module):
     ) -> None:
         super().__init__()
 
+        proj: Sequence[nn.Module]
+        self.proj: nn.Module
+
+        should_proj = stride != 1 or in_channels != out_channels
+        if should_proj:
+            proj = [nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=True)]
+            if stride == 2:
+                proj = [nn.AvgPool2d(kernel_size=3, stride=stride, padding=1)] + proj  # type: ignore
+            self.proj = nn.Sequential(*proj)
+        else:
+            self.proj = nn.Identity()  # type: ignore
+
         layers: OrderedDict = OrderedDict()
 
         # convolutional layer
@@ -459,7 +473,7 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, (C + growth_rate, H, W).
         """
-        x_prev = x
+        x_prev = self.proj(x)
         x_new = self.layers(x)
         return torch.cat([x_prev, x_new], dim=1)
 
@@ -515,25 +529,15 @@ class MaxVitBlock(nn.Module):
         self.layers = nn.ModuleList()
         # account for the first stride of the first layer
         self.grid_size = _get_conv_output_shape(input_grid_size, kernel_size=3, stride=2, padding=1)
-        self.layers += [nn.Sequential(Conv2dNormActivation(
-            in_channels,
-            out_channels,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            inplace=None,
-        ), nn.AvgPool2d(kernel_size=2, stride=2)),] # the Transition Layer before each MaxViT Block
 
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=out_channels + idx * growth_rate,
+                    in_channels=in_channels if idx == 0 else out_channels + idx * growth_rate,
                     out_channels=out_channels + idx * growth_rate,
                     growth_rate=growth_rate,
                     bn_size=bn_size,
-                    stride=1,
+                    stride=2 if idx == 0 else 1,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
