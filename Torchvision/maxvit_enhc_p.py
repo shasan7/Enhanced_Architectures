@@ -52,12 +52,11 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
 
 
 class NormActivationConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-                 padding=1, norm_layer=nn.BatchNorm2d, activation_layer=nn.ReLU):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super().__init__()
         
-        self.norm = norm_layer(in_channels)
-        self.activation = activation_layer(inplace=True)
+        self.norm = nn.BatchNorm2d(in_channels)
+        self.activation = nn.ReLU(inplace=True)
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias = False)
 
     def forward(self, x):
@@ -440,8 +439,6 @@ class MaxVitLayer(nn.Module):
             bn_size=bn_size,
             growth_rate=growth_rate,
             stride=stride,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
             p_stochastic_dropout=p_stochastic_dropout,
         )
         # attention layers, block -> grid
