@@ -425,7 +425,7 @@ class MaxVitLayer(nn.Module):
         )
         # attention layers, block -> grid
         layers["window_attention"] = PartitionAttentionLayer(
-            in_channels=out_channels,
+            in_channels=growth_rate,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="window",
@@ -438,7 +438,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         layers["grid_attention"] = PartitionAttentionLayer(
-            in_channels=out_channels,
+            in_channels=growth_rate,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="grid",
