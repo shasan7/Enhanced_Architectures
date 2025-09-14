@@ -653,7 +653,7 @@ class MaxVit(nn.Module):
                 inplace=None,
             ),
             Conv2dNormActivation(
-                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=false
+                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
             ),
         )
 
