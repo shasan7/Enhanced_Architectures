@@ -109,7 +109,7 @@ class MBConv(nn.Module):
             bn_size * growth_rate,
             bn_size * growth_rate,
             kernel_size=3,
-            stride=stride,
+            stride=1,
             padding=1,
             groups = bn_size * growth_rate,
         )
@@ -478,9 +478,9 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, (C + growth_rate, H, W).
         """
-        x_prev = self.proj(x)
+        x = self.proj(x)
         x_new = self.layers(x)
-        x = torch.cat([x_prev, x_new], dim=1)
+        x = torch.cat([x, x_new], dim=1)
         return x
 
 
