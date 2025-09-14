@@ -419,7 +419,7 @@ class MaxVitLayer(nn.Module):
         if should_proj:
             proj = [nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=True)]
             if stride == 2:
-                proj = [nn.AvgPool2d(kernel_size=3, stride=stride, padding=1)] + proj  # type: ignore
+                proj = [nn.AvgPool2d(kernel_size=2, stride=stride)] + proj  # type: ignore
             self.proj = nn.Sequential(*proj)
         else:
             self.proj = nn.Identity()  # type: ignore
