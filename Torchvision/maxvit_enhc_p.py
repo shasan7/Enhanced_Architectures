@@ -647,9 +647,10 @@ class MaxVit(nn.Module):
                 stem_channels,
                 3,
                 stride=2,
-                norm_layer=nn.BatchNorm2d(stem_channels),
-                activation_layer=nn.ReLU(inplace=True),
+                norm_layer=nn.BatchNorm2d,
+                activation_layer=nn.ReLU,
                 bias=False,
+                inplace=None,
             ),
             Conv2dNormActivation(
                 stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=false
