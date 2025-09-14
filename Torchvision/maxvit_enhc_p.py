@@ -52,12 +52,12 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
 
 
 class NormActivationConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
         super().__init__()
         
         self.norm = nn.BatchNorm2d(in_channels)
         self.activation = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias = False)
+        self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
 
     def forward(self, x):
         x = self.norm(x)
@@ -111,8 +111,9 @@ class MBConv(nn.Module):
             kernel_size=3,
             stride=stride,
             padding=1,
+            groups = bn_size * growth_rate,
         )
-        _layers["conv_c"] = nn.Conv2d(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, bias=True)
+        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
         
         self.layers = nn.Sequential(_layers)
 
@@ -646,13 +647,12 @@ class MaxVit(nn.Module):
                 stem_channels,
                 3,
                 stride=2,
-                norm_layer=norm_layer,
-                activation_layer=activation_layer,
+                norm_layer=nn.BatchNorm2d(stem_channels),
+                activation_layer=nn.ReLU(inplace=True),
                 bias=False,
-                inplace=None,
             ),
             Conv2dNormActivation(
-                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=True
+                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=false
             ),
         )
 
