@@ -51,6 +51,23 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     return relative_coords.sum(-1)
 
 
+class NormActivationConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
+                 padding=1, norm_layer=nn.BatchNorm2d, activation_layer=nn.ReLU):
+        super().__init__()
+        
+        self.norm = norm_layer(in_channels)
+        self.activation = activation_layer(inplace=True)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias = False)
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.activation(x)
+        x = self.conv(x)
+        return x
+
+
+
 class MBConv(nn.Module):
     """MBConv: Mobile Inverted Residual Bottleneck.
 
@@ -72,8 +89,6 @@ class MBConv(nn.Module):
         bn_size: float,
         growth_rate: float,
         stride: int,
-        activation_layer: Callable[..., nn.Module],
-        norm_layer: Callable[..., nn.Module],
         p_stochastic_dropout: float = 0.0,
     ) -> None:
         super().__init__()
@@ -84,27 +99,19 @@ class MBConv(nn.Module):
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["pre_norm"] = norm_layer(in_channels)
-        _layers["conv_a"] = Conv2dNormActivation(
+        _layers["conv_a"] = NormActivationConv(
             in_channels,
             bn_size * growth_rate,
             kernel_size=1,
             stride=1,
             padding=0,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            inplace=None,
         )
-        _layers["conv_b"] = Conv2dNormActivation(
+        _layers["conv_b"] = NormActivationConv(
             bn_size * growth_rate,
             bn_size * growth_rate,
             kernel_size=3,
             stride=stride,
             padding=1,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            groups=bn_size * growth_rate,
-            inplace=None,
         )
         _layers["conv_c"] = nn.Conv2d(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, bias=True)
         
@@ -417,7 +424,7 @@ class MaxVitLayer(nn.Module):
 
         should_proj = stride != 1 or in_channels != out_channels
         if should_proj:
-            proj = [nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=True)]
+            proj = [NormActivationConv(in_channels, out_channels, kernel_size=1, stride=1, padding=0)]
             if stride == 2:
                 proj = [nn.AvgPool2d(kernel_size=2, stride=stride)] + proj  # type: ignore
             self.proj = nn.Sequential(*proj)
@@ -475,7 +482,8 @@ class MaxVitLayer(nn.Module):
         """
         x_prev = self.proj(x)
         x_new = self.layers(x)
-        return torch.cat([x_prev, x_new], dim=1)
+        x = torch.cat([x_prev, x_new], dim=1)
+        return x
 
 
 class MaxVitBlock(nn.Module):
