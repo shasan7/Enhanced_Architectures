@@ -78,8 +78,6 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
-        mid_channels = int(out_channels * expansion_ratio)
-
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
         else:
@@ -87,9 +85,19 @@ class MBConv(nn.Module):
 
         _layers = OrderedDict()
         _layers["pre_norm"] = norm_layer(in_channels)
-        _layers["conv_b"] = Conv2dNormActivation(
+        _layers["conv_a"] = Conv2dNormActivation(
             in_channels,
-            out_channels,
+            bn_size * growth_rate,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            inplace=None,
+        )
+        _layers["conv_b"] = Conv2dNormActivation(
+            bn_size * growth_rate,
+            growth_rate,
             kernel_size=3,
             stride=stride,
             padding=1,
@@ -507,16 +515,25 @@ class MaxVitBlock(nn.Module):
         self.layers = nn.ModuleList()
         # account for the first stride of the first layer
         self.grid_size = _get_conv_output_shape(input_grid_size, kernel_size=3, stride=2, padding=1)
+        self.layers += [nn.Sequential(Conv2dNormActivation(
+            in_channels,
+            out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
+            inplace=None,
+        ), nn.AvgPool2d(kernel_size=2, stride=2)),] # the Transition Layer before each MaxViT Block
 
         for idx, p in enumerate(p_stochastic):
-            stride = 2 if idx == 0 else 1
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else out_channels,
-                    out_channels=out_channels,
-                    squeeze_ratio=squeeze_ratio,
-                    expansion_ratio=expansion_ratio,
-                    stride=stride,
+                    in_channels=out_channels + idx * growth_rate,
+                    out_channels=out_channels + idx * growth_rate,
+                    growth_rate=growth_rate,
+                    bn_size=bn_size,
+                    stride=1,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
