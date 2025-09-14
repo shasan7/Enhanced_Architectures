@@ -653,7 +653,7 @@ class MaxVit(nn.Module):
 
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = [stem_channels] + block_channels[:-1]
+        in_channels = [stem_channels] + [x + y * growth_rate for x, y in zip(block_channels[:-1], block_layers[:-1])]
         out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
@@ -689,10 +689,10 @@ class MaxVit(nn.Module):
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.LayerNorm(block_channels[-1]),
-            nn.Linear(block_channels[-1], block_channels[-1]),
+            nn.LayerNorm(block_channels[-1] + block_layers[-1] * growth_rate),
+            nn.Linear(block_channels[-1] + block_layers[-1] * growth_rate, block_channels[-1] + block_layers[-1] * growth_rate),
             nn.Tanh(),
-            nn.Linear(block_channels[-1], num_classes, bias=False),
+            nn.Linear(block_channels[-1] + block_layers[-1] * growth_rate, num_classes, bias=False),
         )
 
         self._init_weights()
