@@ -435,7 +435,7 @@ class MaxVitLayer(nn.Module):
 
         # convolutional layer
         layers["MBconv"] = MBConv(
-            in_channels=in_channels,
+            in_channels=out_channels,
             out_channels=out_channels,
             bn_size=bn_size,
             growth_rate=growth_rate,
