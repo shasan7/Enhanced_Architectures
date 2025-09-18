@@ -617,7 +617,7 @@ class MaxVit(nn.Module):
         mlp_dropout: float = 0.0,
         attention_dropout: float = 0.0,
         # task parameters
-        num_classes: int = 1000,
+        num_classes: int = 2,
     ) -> None:
         super().__init__()
         _log_api_usage_once(self)
@@ -661,14 +661,14 @@ class MaxVit(nn.Module):
         # account for stem stride
         input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
         self.partition_size = partition_size
-        encoder_stages = len(block_channels)
+        self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1][1:] + [num_classes]
         block_layers = block_layers + block_layers[::-1][1:]
         
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = [stem_channels] + block_channels[:-1]
-        out_channels = block_channels
+        self.in_channels = [stem_channels] + block_channels[:-1]
+        self.out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
         # since we have N blocks with L layers, we will have N * L probabilities uniformly distributed
@@ -676,11 +676,11 @@ class MaxVit(nn.Module):
         p_stochastic = np.linspace(0, stochastic_depth_prob, sum(block_layers)).tolist()
 
         p_idx = 0
-        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(in_channels, out_channels, block_layers)):
+        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(self.in_channels, self.out_channels, block_layers)):
             self.blocks.append(
                 MaxVitBlock(
-                    in_channels=in_channel,
-                    out_channels=out_channel,
+                    in_channels=self.in_channel,
+                    out_channels=self.out_channel,
                     squeeze_ratio=squeeze_ratio,
                     expansion_ratio=expansion_ratio,
                     norm_layer=norm_layer,
@@ -693,7 +693,7 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
-                    mode="encode" if idx < encoder_stages else "decode"
+                    mode="encode" if idx < self.encoder_stages else "decode"
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
@@ -714,8 +714,26 @@ class MaxVit(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.stem(x)
+        skips = [x]
+        block_idx = 0
+        skips_left = 1
+        
         for block in self.blocks:
-            x = block(x)
+            if block_idx < self.encoder_stages:
+                x = block(x)
+                if skips_left < self.encoder_stages
+                    skips.insert(x)
+                    skips_left += 1
+            else:
+                x = deconv(in_channels = in_channels, out_channels = out_channels)
+                x = torch.cat([x, skips[-skips_left]], dim = 1)
+                x = block(x)
+                skips left -= 1
+            block_idx += 1
+        
+        x = deconv(x)
+        x = torch.cat([x, skips[-skips_left]], dim = 1)
+        skips_left -= 1
         x = self.final_deconv(x)
         return x
 
