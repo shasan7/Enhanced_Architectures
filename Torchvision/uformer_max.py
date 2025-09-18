@@ -422,6 +422,7 @@ class MaxVitLayer(nn.Module):
         mlp_dropout: float,
         attention_dropout: float,
         p_stochastic_dropout: float,
+        mode: str,
         # partitioning parameters
         partition_size: int,
         grid_size: tuple[int, int],
@@ -524,6 +525,7 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
+        mode: str,
     ) -> None:
         super().__init__()
         if not len(p_stochastic) == n_layers:
@@ -534,7 +536,7 @@ class MaxVitBlock(nn.Module):
         self.grid_size = _get_conv_output_shape(input_grid_size, kernel_size=3, stride=2, padding=1)
 
         for idx, p in enumerate(p_stochastic):
-            stride = 2 if idx == 0 else 1
+            stride = 2 if mode == "encode" and idx == 0 else 1
             self.layers += [
                 MaxVitLayer(
                     in_channels=in_channels if idx == 0 else out_channels,
@@ -551,6 +553,7 @@ class MaxVitBlock(nn.Module):
                     partition_size=partition_size,
                     grid_size=self.grid_size,
                     p_stochastic_dropout=p,
+                    mode=mode
                 ),
             ]
 
@@ -658,7 +661,10 @@ class MaxVit(nn.Module):
         # account for stem stride
         input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
         self.partition_size = partition_size
-
+        encoder_stages = len(block_channels)
+        block_channels = block_channels + block_channels[::-1][1:] + [num_classes]
+        block_layers = block_layers + block_layers[::-1][1:]
+        
         # blocks
         self.blocks = nn.ModuleList()
         in_channels = [stem_channels] + block_channels[:-1]
@@ -670,7 +676,7 @@ class MaxVit(nn.Module):
         p_stochastic = np.linspace(0, stochastic_depth_prob, sum(block_layers)).tolist()
 
         p_idx = 0
-        for in_channel, out_channel, num_layers in zip(in_channels, out_channels, block_layers):
+        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(in_channels, out_channels, block_layers)):
             self.blocks.append(
                 MaxVitBlock(
                     in_channels=in_channel,
@@ -687,6 +693,7 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
+                    mode="encode" if idx < encoder_stages else "decode"
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
@@ -694,7 +701,7 @@ class MaxVit(nn.Module):
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
         # for why there is Linear -> Tanh -> Linear
-        self.classifier = nn.Sequential(
+        self.final_deconv = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.LayerNorm(block_channels[-1]),
@@ -709,7 +716,7 @@ class MaxVit(nn.Module):
         x = self.stem(x)
         for block in self.blocks:
             x = block(x)
-        x = self.classifier(x)
+        x = self.final_deconv(x)
         return x
 
     def _init_weights(self):
