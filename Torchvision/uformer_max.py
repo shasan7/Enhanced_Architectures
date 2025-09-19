@@ -688,7 +688,7 @@ class MaxVit(nn.Module):
             )
             if idx >= self.encoder_stages - 1:
                 self.blocks.append(
-                    nn.conv2d(out_channels, out_channels//2, kernel_size=1, stride=1, bias=True),
+                    nn.Conv2d(out_channels, out_channels//2, kernel_size=1, stride=1, bias=True),
                 )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
             p_idx += num_layers
