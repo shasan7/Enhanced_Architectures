@@ -686,12 +686,13 @@ class MaxVit(nn.Module):
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                 ),
             )
+            input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
+            p_idx += num_layers
+            
             if idx >= self.encoder_stages - 1:
                 self.blocks.append(
                     nn.Conv2d(out_channel, out_channel//2, kernel_size=1, stride=1, bias=True),
                 )
-            input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
-            p_idx += num_layers
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
         # for why there is Linear -> Tanh -> Linear
