@@ -576,7 +576,7 @@ class MaxVit(nn.Module):
         mlp_ratio (int): Expansion ratio of the MLP layer. Default: 4.
         mlp_dropout (float): Dropout probability for the MLP layer. Default: 0.0.
         attention_dropout (float): Dropout probability for the attention layer. Default: 0.0.
-        num_classes (int): Number of classes. Default: 1000.
+        num_classes (int): Number of classes. Default: 2.
     """
 
     def __init__(
@@ -648,12 +648,12 @@ class MaxVit(nn.Module):
         )
 
         # account for stem stride
-        input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
+        input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=1, padding=1)
         self.partition_size = partition_size
         self.encoder_stages = len(block_channels)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        block_channels = block_channels + block_channels[::-1][1:] + [num_classes]
+        block_channels = block_channels + block_channels[::-1][1:]
         block_layers = block_layers + block_layers[::-1][1:]
         
         # blocks
