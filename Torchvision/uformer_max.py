@@ -719,7 +719,7 @@ class MaxVit(nn.Module):
             if block_idx < self.encoder_stages:
                 x = self.pool(x)
                 x = block(x)
-                if skips_left < self.encoder_stages
+                if skips_left < self.encoder_stages:
                     skips.insert(x)
                     skips_left += 1
             else:
