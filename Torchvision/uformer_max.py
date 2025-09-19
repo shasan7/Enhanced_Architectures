@@ -553,7 +553,7 @@ class MaxVitBlock(nn.Module):
 
         if proj:
             self.layers += [nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
-                                          nn.Conv2d(out_channel, out_channel//2, kernel_size=1, stride=1),)]
+                                          nn.Conv2d(out_channels, out_channels//2, kernel_size=1, stride=1),)]
 
     def forward(self, x: Tensor) -> Tensor:
         """
