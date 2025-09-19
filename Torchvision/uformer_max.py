@@ -663,7 +663,6 @@ class MaxVit(nn.Module):
         self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1][1:]
         block_layers = block_layers + block_layers[::-1][1:]
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         
         # blocks
         self.blocks = nn.ModuleList()
@@ -738,7 +737,6 @@ class MaxVit(nn.Module):
                 skips_left -= 1
             block_idx += 1
         
-        x = self.upsample(x) 
         x = torch.cat([x, skips[-skips_left]], dim = 1)
         skips_left -= 1
         x = self.end_stem(x)
