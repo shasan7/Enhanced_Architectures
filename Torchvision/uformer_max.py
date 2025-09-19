@@ -647,7 +647,7 @@ class MaxVit(nn.Module):
                 input_channels,
                 stem_channels,
                 3,
-                stride=1,
+                stride=2,
                 norm_layer=nn.BatchNorm2d,
                 activation_layer=nn.ReLU,
                 bias=False,
@@ -660,6 +660,7 @@ class MaxVit(nn.Module):
 
         # account for stem stride
         self.partition_size = partition_size
+        input_size = (input_size[0]//2, input_size[1]//2)
         self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1][1:]
         block_layers = block_layers + block_layers[::-1][1:]
