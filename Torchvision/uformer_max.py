@@ -554,7 +554,7 @@ class MaxVitBlock(nn.Module):
 
         if proj:
             self.layers += [nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
-                                          nn.Conv2d(out_channels, out_channels//2, kernel_size=1, stride=1),)]
+                                          NormActivationConv(out_channels, out_channels//2, kernel_size=1, stride=1, padding=0),)]
             self.grid_size = (self.grid_size[0]*2, self.grid_size[1]*2)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -663,7 +663,6 @@ class MaxVit(nn.Module):
         self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1][1:]
         block_layers = block_layers + block_layers[::-1][1:]
-        self.total_stages = len(block_channels)
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         
         # blocks
@@ -695,7 +694,7 @@ class MaxVit(nn.Module):
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                     pool = True if idx < self.encoder_stages else False,
-                    proj = True if idx >= self.encoder_stages - 1 and idx < self.total_stages - 1 else False,
+                    proj = True if idx >= self.encoder_stages - 1 else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
@@ -705,7 +704,7 @@ class MaxVit(nn.Module):
         # for why there is Linear -> Tanh -> Linear
         self.end_stem = nn.Sequential(
             NormActivationConv(
-                in_channels[-1], stem_channels, kernel_size=3, stride=1, padding=1,
+                out_channels[-1], stem_channels, kernel_size=1, stride=1, padding=0,
             ),
             NormActivationConv(
                 stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
