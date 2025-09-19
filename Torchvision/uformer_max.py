@@ -726,7 +726,7 @@ class MaxVit(nn.Module):
                 x = self.upsample(x)
                 x = torch.cat([x, skips[-skips_left]], dim = 1)
                 x = block(x)
-                skips left -= 1
+                skips_left -= 1
             block_idx += 1
         
         x = self.upsample(x)
