@@ -50,6 +50,20 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     relative_coords[:, :, 0] *= 2 * width - 1
     return relative_coords.sum(-1)
 
+class NormActivationConv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
+        super().__init__()
+        
+        self.norm = nn.BatchNorm2d(in_channels)
+        self.activation = nn.ReLU(inplace=False)
+        self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.activation(x)
+        x = self.conv(x)
+        return x
+
 
 class MBConv(nn.Module):
     """MBConv: Mobile Inverted Residual Bottleneck.
@@ -78,18 +92,6 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
-        proj: Sequence[nn.Module]
-        self.proj: nn.Module
-
-        should_proj = stride != 1 or in_channels != out_channels
-        if should_proj:
-            proj = [nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=True)]
-            if stride == 2:
-                proj = [nn.AvgPool2d(kernel_size=3, stride=stride, padding=1)] + proj  # type: ignore
-            self.proj = nn.Sequential(*proj)
-        else:
-            self.proj = nn.Identity()  # type: ignore
-
         mid_channels = int(out_channels * expansion_ratio)
         sqz_channels = int(out_channels * squeeze_ratio)
 
@@ -99,30 +101,22 @@ class MBConv(nn.Module):
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["pre_norm"] = norm_layer(in_channels)
-        _layers["conv_a"] = Conv2dNormActivation(
+        _layers["conv_a"] = NormActivationConv(
             in_channels,
-            mid_channels,
+            out_channels * expansion_ratio,
             kernel_size=1,
             stride=1,
             padding=0,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            inplace=None,
         )
-        _layers["conv_b"] = Conv2dNormActivation(
-            mid_channels,
-            mid_channels,
+        _layers["conv_b"] = NormActivationConv(
+            out_channels * expansion_ratio,
+            out_channels * expansion_ratio,
             kernel_size=3,
-            stride=stride,
+            stride=1,
             padding=1,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
-            groups=mid_channels,
-            inplace=None,
+            groups = out_channels * expansion_ratio,
         )
-        _layers["squeeze_excitation"] = SqueezeExcitation(mid_channels, sqz_channels, activation=nn.SiLU)
-        _layers["conv_c"] = nn.Conv2d(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, bias=True)
+        _layers["conv_c"] = NormActivationConv(in_channels=out_channels * expansion_ratio, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=True)
 
         self.layers = nn.Sequential(_layers)
 
@@ -133,9 +127,8 @@ class MBConv(nn.Module):
         Returns:
             Tensor: Output tensor with expected layout of [B, C, H / stride, W / stride].
         """
-        res = self.proj(x)
         x = self.stochastic_depth(self.layers(x))
-        return res + x
+        return x
 
 
 class RelativePositionalMultiHeadAttention(nn.Module):
@@ -422,7 +415,6 @@ class MaxVitLayer(nn.Module):
         mlp_dropout: float,
         attention_dropout: float,
         p_stochastic_dropout: float,
-        mode: str,
         # partitioning parameters
         partition_size: int,
         grid_size: tuple[int, int],
@@ -525,7 +517,6 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
-        mode: str,
     ) -> None:
         super().__init__()
         if not len(p_stochastic) == n_layers:
@@ -536,14 +527,13 @@ class MaxVitBlock(nn.Module):
         self.grid_size = _get_conv_output_shape(input_grid_size, kernel_size=3, stride=2, padding=1)
 
         for idx, p in enumerate(p_stochastic):
-            stride = 2 if mode == "encode" and idx == 0 else 1
             self.layers += [
                 MaxVitLayer(
                     in_channels=in_channels if idx == 0 else out_channels,
                     out_channels=out_channels,
                     squeeze_ratio=squeeze_ratio,
                     expansion_ratio=expansion_ratio,
-                    stride=stride,
+                    stride=1,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
@@ -553,7 +543,6 @@ class MaxVitBlock(nn.Module):
                     partition_size=partition_size,
                     grid_size=self.grid_size,
                     p_stochastic_dropout=p,
-                    mode=mode
                 ),
             ]
 
@@ -647,14 +636,14 @@ class MaxVit(nn.Module):
                 input_channels,
                 stem_channels,
                 3,
-                stride=2,
-                norm_layer=norm_layer,
-                activation_layer=activation_layer,
+                stride=1,
+                norm_layer=nn.BatchNorm2d,
+                activation_layer=nn.ReLU,
                 bias=False,
                 inplace=None,
             ),
             Conv2dNormActivation(
-                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=True
+                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
             ),
         )
 
@@ -662,13 +651,15 @@ class MaxVit(nn.Module):
         input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
         self.partition_size = partition_size
         self.encoder_stages = len(block_channels)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         block_channels = block_channels + block_channels[::-1][1:] + [num_classes]
         block_layers = block_layers + block_layers[::-1][1:]
         
         # blocks
         self.blocks = nn.ModuleList()
-        self.in_channels = [stem_channels] + block_channels[:-1]
-        self.out_channels = block_channels
+        in_channels = [stem_channels] + block_channels[:-1]
+        out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
         # since we have N blocks with L layers, we will have N * L probabilities uniformly distributed
@@ -676,11 +667,11 @@ class MaxVit(nn.Module):
         p_stochastic = np.linspace(0, stochastic_depth_prob, sum(block_layers)).tolist()
 
         p_idx = 0
-        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(self.in_channels, self.out_channels, block_layers)):
+        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(in_channels, out_channels, block_layers)):
             self.blocks.append(
                 MaxVitBlock(
-                    in_channels=self.in_channel,
-                    out_channels=self.out_channel,
+                    in_channels=in_channel,
+                    out_channels=out_channel,
                     squeeze_ratio=squeeze_ratio,
                     expansion_ratio=expansion_ratio,
                     norm_layer=norm_layer,
@@ -693,7 +684,6 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
-                    mode="encode" if idx < self.encoder_stages else "decode"
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
@@ -701,13 +691,20 @@ class MaxVit(nn.Module):
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
         # for why there is Linear -> Tanh -> Linear
-        self.final_deconv = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.LayerNorm(block_channels[-1]),
-            nn.Linear(block_channels[-1], block_channels[-1]),
-            nn.Tanh(),
-            nn.Linear(block_channels[-1], num_classes, bias=False),
+        self.end_stem = nn.Sequential(
+            NormActivationConv(
+                in_channels[-1], stem_channels, kernel_size=3, stride=1, padding=1,
+            ),
+            NormActivationConv(
+                stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
+            ),
+            NormActivationConv(
+                stem_channels,
+                num_classes,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+            ),
         )
 
         self._init_weights()
@@ -720,21 +717,22 @@ class MaxVit(nn.Module):
         
         for block in self.blocks:
             if block_idx < self.encoder_stages:
+                x = self.pool(x)
                 x = block(x)
                 if skips_left < self.encoder_stages
                     skips.insert(x)
                     skips_left += 1
             else:
-                x = deconv(in_channels = in_channels, out_channels = out_channels)
+                x = self.upsample(x)
                 x = torch.cat([x, skips[-skips_left]], dim = 1)
                 x = block(x)
                 skips left -= 1
             block_idx += 1
         
-        x = deconv(x)
+        x = self.upsample(x)
         x = torch.cat([x, skips[-skips_left]], dim = 1)
         skips_left -= 1
-        x = self.final_deconv(x)
+        x = self.end_stem(x)
         return x
 
     def _init_weights(self):
