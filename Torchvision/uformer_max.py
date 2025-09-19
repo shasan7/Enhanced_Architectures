@@ -685,6 +685,8 @@ class MaxVit(nn.Module):
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                 ),
+                if idx >= self.encoder_stages - 1:
+                    nn.conv2d(out_channels, out_channels//2, kernel_size=1, stride=1, bias=True),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
             p_idx += num_layers
