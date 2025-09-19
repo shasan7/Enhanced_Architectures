@@ -526,10 +526,11 @@ class MaxVitBlock(nn.Module):
 
         self.layers = nn.ModuleList()
         # account for the first stride of the first layer
-        self.grid_size = _get_conv_output_shape(input_grid_size, kernel_size=3, stride=1, padding=1)
+        self.grid_size = input_grid_size
 
         if pool:
             self.layers += [nn.MaxPool2d(kernel_size=2, stride=2),]
+            self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
         for idx, p in enumerate(p_stochastic):
             self.layers += [
@@ -554,6 +555,7 @@ class MaxVitBlock(nn.Module):
         if proj:
             self.layers += [nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
                                           nn.Conv2d(out_channels, out_channels//2, kernel_size=1, stride=1),)]
+            self.grid_size = (self.grid_size[0]*2, self.grid_size[1]*2)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -657,7 +659,6 @@ class MaxVit(nn.Module):
         )
 
         # account for stem stride
-        input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=1, padding=1)
         self.partition_size = partition_size
         self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1][1:]
