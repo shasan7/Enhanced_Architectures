@@ -517,6 +517,8 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
+        pool: bool,
+        proj: bool,
     ) -> None:
         super().__init__()
         if not len(p_stochastic) == n_layers:
@@ -525,6 +527,9 @@ class MaxVitBlock(nn.Module):
         self.layers = nn.ModuleList()
         # account for the first stride of the first layer
         self.grid_size = _get_conv_output_shape(input_grid_size, kernel_size=3, stride=2, padding=1)
+
+        if pool:
+            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2),]
 
         for idx, p in enumerate(p_stochastic):
             self.layers += [
@@ -545,6 +550,10 @@ class MaxVitBlock(nn.Module):
                     p_stochastic_dropout=p,
                 ),
             ]
+
+        if proj:
+            self.layers += [nn.sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
+                                          nn.Conv2d(out_channel, out_channel//2, kernel_size=1, stride=1),)]
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -651,8 +660,6 @@ class MaxVit(nn.Module):
         input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=1, padding=1)
         self.partition_size = partition_size
         self.encoder_stages = len(block_channels)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         block_channels = block_channels + block_channels[::-1][1:]
         block_layers = block_layers + block_layers[::-1][1:]
         
@@ -684,15 +691,12 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
+                    pool = True if idx < self.encoder_stages else False
+                    proj = True if idx >= self.encoder_stages - 1 else False
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
             p_idx += num_layers
-            
-            if idx >= self.encoder_stages - 1:
-                self.blocks.append(
-                    nn.Conv2d(out_channel, out_channel//2, kernel_size=1, stride=1, bias=True),
-                )
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
         # for why there is Linear -> Tanh -> Linear
@@ -722,19 +726,16 @@ class MaxVit(nn.Module):
         
         for block in self.blocks:
             if block_idx < self.encoder_stages:
-                x = self.pool(x)
                 x = block(x)
                 if skips_left < self.encoder_stages:
                     skips.insert(0, x)
                     skips_left += 1
             else:
-                x = self.upsample(x)
                 x = torch.cat([x, skips[-skips_left]], dim = 1)
                 x = block(x)
                 skips_left -= 1
             block_idx += 1
         
-        x = self.upsample(x)
         x = torch.cat([x, skips[-skips_left]], dim = 1)
         skips_left -= 1
         x = self.end_stem(x)
