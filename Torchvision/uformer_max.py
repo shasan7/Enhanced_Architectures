@@ -663,6 +663,7 @@ class MaxVit(nn.Module):
         self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1][1:]
         block_layers = block_layers + block_layers[::-1][1:]
+        self.total_stages = len(block_channels)
         
         # blocks
         self.blocks = nn.ModuleList()
@@ -693,7 +694,7 @@ class MaxVit(nn.Module):
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                     pool = True if idx < self.encoder_stages else False,
-                    proj = True if idx >= self.encoder_stages - 1 else False,
+                    proj = True if idx >= self.encoder_stages - 1 and idx < self.total_stages else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
