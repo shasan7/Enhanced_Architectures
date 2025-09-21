@@ -107,12 +107,12 @@ class MBConv(nn.Module):
         )
         _layers["conv_b"] = NormActivationConv(
             bn_size * growth_rate,
-            bn_size * growth_rate,
+            growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
+            bias=True,
         )
-        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
         
         self.layers = nn.Sequential(_layers)
 
