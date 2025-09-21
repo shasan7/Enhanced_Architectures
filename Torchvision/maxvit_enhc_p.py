@@ -56,7 +56,7 @@ class NormActivationConv(nn.Module):
         super().__init__()
         
         self.norm = nn.BatchNorm2d(in_channels)
-        self.activation = nn.ReLU(inplace=False)
+        self.activation = nn.ReLU(inplace=True)
         self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
 
     def forward(self, x):
@@ -648,7 +648,7 @@ class MaxVit(nn.Module):
                 norm_layer=nn.BatchNorm2d,
                 activation_layer=nn.ReLU,
                 bias=False,
-                inplace=False,
+                inplace=None,
             ),
             Conv2dNormActivation(
                 stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
