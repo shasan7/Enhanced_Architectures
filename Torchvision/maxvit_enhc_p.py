@@ -92,6 +92,8 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
+        self.proj: nn.Module
+        
         if stride == 2:
             self.proj = nn.MaxPool2d(kernel_size=2, stride=2)
         else:
