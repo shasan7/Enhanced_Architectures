@@ -92,14 +92,7 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
-        proj: Sequence[nn.Module]
-        self.proj: nn.Module
-        
-        if stride == 2:
-            proj = [nn.MaxPool2d(kernel_size=2, stride=2)]
-            self.proj = nn.Sequential(*proj)
-        else:
-            self.proj = nn.Identity()  # type: ignore
+        self.should_proj: stride != 1
 
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
@@ -133,7 +126,11 @@ class MBConv(nn.Module):
         Returns:
             Tensor: Output tensor with expected layout of [B, C, H / stride, W / stride].
         """
-        res = self.proj(x)
+        if self.should_proj:
+            res = nn.MaxPool2d(kernel_size=2, stride=2)(x)
+        else:
+            res = nn.Identity()(x)
+            
         x = self.stochastic_depth(self.layers(x))
         x = res + x
         return x
