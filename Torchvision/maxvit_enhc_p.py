@@ -92,10 +92,12 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
+        proj: Sequence[nn.Module]
         self.proj: nn.Module
         
         if stride == 2:
-            self.proj = nn.MaxPool2d(kernel_size=2, stride=2)
+            proj = [nn.MaxPool2d(kernel_size=2, stride=2)]
+            self.proj = nn.Sequential(*proj)
         else:
             self.proj = nn.Identity()  # type: ignore
 
