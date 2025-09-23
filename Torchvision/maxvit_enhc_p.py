@@ -92,8 +92,6 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.should_proj: stride != 1
-
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
         else:
@@ -102,20 +100,20 @@ class MBConv(nn.Module):
         _layers = OrderedDict()
         _layers["conv_a"] = NormActivationConv(
             in_channels,
-            bn_size * out_channels,
+            bn_size * growth_rate,
             kernel_size=1,
             stride=1,
             padding=0,
         )
         _layers["conv_b"] = NormActivationConv(
-            bn_size * out_channels,
-            bn_size * out_channels,
+            bn_size * growth_rate,
+            bn_size * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            groups = bn_size * out_channels,
+            groups = bn_size * growth_rate,
         )
-        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * out_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=True)
+        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
         
         self.layers = nn.Sequential(_layers)
 
@@ -126,13 +124,7 @@ class MBConv(nn.Module):
         Returns:
             Tensor: Output tensor with expected layout of [B, C, H / stride, W / stride].
         """
-        if self.should_proj:
-            res = nn.MaxPool2d(kernel_size=2, stride=2)(x)
-        else:
-            res = nn.Identity()(x)
-            
         x = self.stochastic_depth(self.layers(x))
-        x = res + x
         return x
 
 
@@ -427,11 +419,23 @@ class MaxVitLayer(nn.Module):
     ) -> None:
         super().__init__()
 
+        proj: Sequence[nn.Module]
+        self.proj: nn.Module
+
+        should_proj = stride != 1 or in_channels != out_channels
+        if should_proj:
+            proj = [NormActivationConv(in_channels, out_channels, kernel_size=1, stride=1, padding=0)]
+            if stride == 2:
+                proj = proj + [nn.AvgPool2d(kernel_size=2, stride=stride)]  # type: ignore
+            self.proj = nn.Sequential(*proj)
+        else:
+            self.proj = nn.Identity()  # type: ignore
+
         layers: OrderedDict = OrderedDict()
 
         # convolutional layer
         layers["MBconv"] = MBConv(
-            in_channels=in_channels,
+            in_channels=out_channels,
             out_channels=out_channels,
             bn_size=bn_size,
             growth_rate=growth_rate,
@@ -440,7 +444,7 @@ class MaxVitLayer(nn.Module):
         )
         # attention layers, block -> grid
         layers["window_attention"] = PartitionAttentionLayer(
-            in_channels=out_channels,
+            in_channels=growth_rate,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="window",
@@ -453,7 +457,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         layers["grid_attention"] = PartitionAttentionLayer(
-            in_channels=out_channels,
+            in_channels=growth_rate,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="grid",
@@ -474,9 +478,9 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, (C + growth_rate, H, W).
         """
-        
-        x = self.layers(x)
-        
+        x = self.proj(x)
+        x_new = self.layers(x)
+        x = torch.cat([x, x_new], dim=1)
         return x
 
 
@@ -535,8 +539,8 @@ class MaxVitBlock(nn.Module):
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else out_channels,
-                    out_channels=out_channels,
+                    in_channels=in_channels if idx == 0 else out_channels + idx * growth_rate,
+                    out_channels=out_channels + idx * growth_rate,
                     growth_rate=growth_rate,
                     bn_size=bn_size,
                     stride=2 if idx == 0 else 1,
@@ -605,7 +609,7 @@ class MaxVit(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
-        growth_rate: float = 32,
+        growth_rate: float,
         bn_size: float = 4,
         # transformer parameters
         mlp_ratio: int = 4,
@@ -656,11 +660,10 @@ class MaxVit(nn.Module):
         # account for stem stride
         input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
         self.partition_size = partition_size
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = block_channels
+        in_channels = [stem_channels] + [x + y * growth_rate for x, y in zip(block_channels[:-1], block_layers[:-1])]
         out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
@@ -696,10 +699,10 @@ class MaxVit(nn.Module):
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.LayerNorm(out_channels[-1] + in_channels[-1]),
-            nn.Linear(out_channels[-1] + in_channels[-1], out_channels[-1] + in_channels[-1]),
+            nn.LayerNorm(block_channels[-1] + block_layers[-1] * growth_rate),
+            nn.Linear(block_channels[-1] + block_layers[-1] * growth_rate, block_channels[-1] + block_layers[-1] * growth_rate),
             nn.Tanh(),
-            nn.Linear(out_channels[-1] + in_channels[-1], num_classes, bias=False),
+            nn.Linear(block_channels[-1] + block_layers[-1] * growth_rate, num_classes, bias=False),
         )
 
         self._init_weights()
@@ -707,9 +710,7 @@ class MaxVit(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = self.stem(x)
         for block in self.blocks:
-            x_prev = self.pool(x)
-            x_new = block(x)
-            x = torch.concat([x_prev, x_new], dim = 1) 
+            x = block(x)
         x = self.classifier(x)
         return x
 
@@ -737,6 +738,7 @@ def _maxvit(
     stochastic_depth_prob: float,
     # partitioning parameters
     partition_size: int,
+    growth_rate: float,
     # transformer parameters
     head_dim: int,
     # Weights API
@@ -761,6 +763,7 @@ def _maxvit(
         head_dim=head_dim,
         partition_size=partition_size,
         input_size=input_size,
+        growth_rate=growth_rate,
         **kwargs,
     )
 
