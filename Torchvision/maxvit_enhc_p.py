@@ -639,6 +639,7 @@ class MaxVit(nn.Module):
         # account for stem stride
         input_size = _get_conv_output_shape(input_size, kernel_size=3, stride=2, padding=1)
         self.partition_size = partition_size
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # blocks
         self.blocks = nn.ModuleList()
