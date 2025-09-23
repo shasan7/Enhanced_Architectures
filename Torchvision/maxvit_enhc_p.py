@@ -92,19 +92,37 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
+        proj: Sequence[nn.Module]
+        self.proj: nn.Module
+
+        should_proj = stride == 2
+        if should_proj:
+            self.proj = nn.MaxPool2d(kernel_size=2, stride=2)
+        else:
+            self.proj = nn.Identity()  # type: ignore
+
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
         else:
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["conv_b"] = NormActivationConv(
+        _layers["conv_a"] = NormActivationConv(
             in_channels,
-            out_channels,
-            kernel_size=3,
-            stride=stride,
-            padding=1,
+            bn_size * out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
         )
+        _layers["conv_b"] = NormActivationConv(
+            bn_size * out_channels,
+            bn_size * out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            groups = bn_size * out_channels,
+        )
+        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * out_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=True)
         
         self.layers = nn.Sequential(_layers)
 
@@ -115,7 +133,9 @@ class MBConv(nn.Module):
         Returns:
             Tensor: Output tensor with expected layout of [B, C, H / stride, W / stride].
         """
+        res = self.proj(x)
         x = self.stochastic_depth(self.layers(x))
+        x = res + x
         return x
 
 
