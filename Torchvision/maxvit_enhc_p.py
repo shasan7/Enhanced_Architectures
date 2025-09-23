@@ -56,7 +56,7 @@ class NormActivationConv(nn.Module):
         super().__init__()
         
         self.norm = nn.BatchNorm2d(in_channels)
-        self.activation = nn.ReLU(inplace=True)
+        self.activation = nn.ReLU(inplace=False)
         self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
 
     def forward(self, x):
@@ -98,20 +98,12 @@ class MBConv(nn.Module):
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["conv_a"] = NormActivationConv(
-            in_channels,
-            bn_size * growth_rate,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-        )
         _layers["conv_b"] = NormActivationConv(
-            bn_size * growth_rate,
-            growth_rate,
+            in_channels,
+            out_channels,
             kernel_size=3,
-            stride=1,
+            stride=stride,
             padding=1,
-            bias=True,
         )
         
         self.layers = nn.Sequential(_layers)
@@ -365,7 +357,8 @@ class PartitionAttentionLayer(nn.Module):
 
         x = self.partition_op(x, self.p)
         x = self.partition_swap(x)
-        x = x + self.stochastic_dropout(self.attn_layer(x))
+        B, C, H, W = x.shape
+        x = x + self.stochastic_dropout(self.attn_layer(x)) + self.stochastic_dropout(self.attn_layer(x.permute(0, 2, 3, 1).reshape(B, -1).reshape(B, C, H, W))) + self.stochastic_dropout(self.attn_layer(x.permute(0, 3, 2, 1).reshape(B, -1).reshape(B, C, H, W)))
         x = x + self.stochastic_dropout(self.mlp_layer(x))
         x = self.departition_swap(x)
         x = self.departition_op(x, self.p, gh, gw)
@@ -417,23 +410,11 @@ class MaxVitLayer(nn.Module):
     ) -> None:
         super().__init__()
 
-        proj: Sequence[nn.Module]
-        self.proj: nn.Module
-
-        should_proj = stride != 1 or in_channels != out_channels
-        if should_proj:
-            proj = [NormActivationConv(in_channels, out_channels, kernel_size=1, stride=1, padding=0)]
-            if stride == 2:
-                proj = proj + [nn.AvgPool2d(kernel_size=2, stride=stride)]  # type: ignore
-            self.proj = nn.Sequential(*proj)
-        else:
-            self.proj = nn.Identity()  # type: ignore
-
         layers: OrderedDict = OrderedDict()
 
         # convolutional layer
         layers["MBconv"] = MBConv(
-            in_channels=out_channels,
+            in_channels=in_channels,
             out_channels=out_channels,
             bn_size=bn_size,
             growth_rate=growth_rate,
@@ -442,7 +423,7 @@ class MaxVitLayer(nn.Module):
         )
         # attention layers, block -> grid
         layers["window_attention"] = PartitionAttentionLayer(
-            in_channels=growth_rate,
+            in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="window",
@@ -455,7 +436,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         layers["grid_attention"] = PartitionAttentionLayer(
-            in_channels=growth_rate,
+            in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="grid",
@@ -476,9 +457,9 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, (C + growth_rate, H, W).
         """
-        x = self.proj(x)
-        x_new = self.layers(x)
-        x = torch.cat([x, x_new], dim=1)
+        
+        x = self.layers(x)
+        
         return x
 
 
@@ -537,8 +518,8 @@ class MaxVitBlock(nn.Module):
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else out_channels + idx * growth_rate,
-                    out_channels=out_channels + idx * growth_rate,
+                    in_channels=in_channels if idx == 0 else out_channels,
+                    out_channels=out_channels,
                     growth_rate=growth_rate,
                     bn_size=bn_size,
                     stride=2 if idx == 0 else 1,
@@ -648,7 +629,7 @@ class MaxVit(nn.Module):
                 norm_layer=nn.BatchNorm2d,
                 activation_layer=nn.ReLU,
                 bias=False,
-                inplace=None,
+                inplace=False,
             ),
             Conv2dNormActivation(
                 stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
@@ -661,7 +642,7 @@ class MaxVit(nn.Module):
 
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = [stem_channels] + [x + y * growth_rate for x, y in zip(block_channels[:-1], block_layers[:-1])]
+        in_channels = block_channels
         out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
@@ -697,10 +678,10 @@ class MaxVit(nn.Module):
         self.classifier = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.LayerNorm(block_channels[-1] + block_layers[-1] * growth_rate),
-            nn.Linear(block_channels[-1] + block_layers[-1] * growth_rate, block_channels[-1] + block_layers[-1] * growth_rate),
+            nn.LayerNorm(out_channels[-1] + in_channels[-1]),
+            nn.Linear(out_channels[-1] + in_channels[-1], out_channels[-1] + in_channels[-1]),
             nn.Tanh(),
-            nn.Linear(block_channels[-1] + block_layers[-1] * growth_rate, num_classes, bias=False),
+            nn.Linear(out_channels[-1] + in_channels[-1], num_classes, bias=False),
         )
 
         self._init_weights()
@@ -708,7 +689,9 @@ class MaxVit(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = self.stem(x)
         for block in self.blocks:
-            x = block(x)
+            x_prev = x
+            x_new = block(x)
+            x = torch.cat([x_prev, x_new], dim=1)
         x = self.classifier(x)
         return x
 
