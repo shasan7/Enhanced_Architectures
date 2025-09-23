@@ -689,9 +689,9 @@ class MaxVit(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         x = self.stem(x)
         for block in self.blocks:
-            x_prev = x
+            x_prev = self.pool(x)
             x_new = block(x)
-            x = torch.cat([x_prev, x_new], dim=1)
+            x = torch.concat([x_prev, x_new], dim = 1) 
         x = self.classifier(x)
         return x
 
