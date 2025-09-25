@@ -529,8 +529,8 @@ class MaxVitBlock(nn.Module):
         n_layers: int,
         p_stochastic: list[float],
         mode = str,
-        pool: bool,
         proj: bool,
+        pool: bool,
     ) -> None:
         super().__init__()
         if not len(p_stochastic) == n_layers:
@@ -711,8 +711,8 @@ class MaxVit(nn.Module):
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                     mode = "encode" if idx < self.encoder_stages else "decode",
-                    pool = True if idx < self.encoder_stages - 1 else False,
                     proj = True if idx > self.encoder_stages else False,
+                    pool = True if idx < self.encoder_stages - 1 else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
