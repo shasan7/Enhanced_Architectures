@@ -101,13 +101,22 @@ class MBConv(nn.Module):
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["conv_b"] = NormActivationConv(
+        _layers["conv_a"] = NormActivationConv(
             in_channels,
-            out_channels,
+            bn_size * growth_rate,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+        )
+        _layers["conv_b"] = NormActivationConv(
+            bn_size * growth_rate,
+            bn_size * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
+            groups = bn_size * growth_rate,
         )
+        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
 
         self.layers = nn.Sequential(_layers)
 
@@ -409,8 +418,10 @@ class MaxVitLayer(nn.Module):
         # partitioning parameters
         partition_size: int,
         grid_size: tuple[int, int],
+        mode = str,
     ) -> None:
         super().__init__()
+        self.mode = mode
 
         layers: OrderedDict = OrderedDict()
 
@@ -461,7 +472,15 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, C, H, W).
         """
-        x = self.layers(x)
+        if self.mode == "encode":
+            x_prev = x
+            x_new = self.layers(x)
+            x = torch.cat([x_prev, x_new], dim=1)
+
+        elif self.mode == "decode":
+            x_prev = x[:, 2 * bn_size * growth_rate:, :, :]
+            x_new = self.layers(x)
+            x = torch.cat([x_prev, x_new], dim=1) 
         return x
 
 
@@ -508,6 +527,7 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
+        mode = str,
         pool: bool,
         proj: bool,
     ) -> None:
@@ -519,15 +539,11 @@ class MaxVitBlock(nn.Module):
         # account for the first stride of the first layer
         self.grid_size = input_grid_size
 
-        if pool:
-            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2),]
-            self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
-
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else out_channels,
-                    out_channels=out_channels,
+                    in_channels=in_channels if idx == 0 else out_channels + idx * growth_rate,
+                    out_channels=out_channels + idx * growth_rate,
                     squeeze_ratio=squeeze_ratio,
                     expansion_ratio=expansion_ratio,
                     stride=1,
@@ -540,13 +556,14 @@ class MaxVitBlock(nn.Module):
                     partition_size=partition_size,
                     grid_size=self.grid_size,
                     p_stochastic_dropout=p,
+                    mode = mode,
                 ),
             ]
 
-        if proj:
-            self.layers += [nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
-                                          NormActivationConv(out_channels, out_channels//2, kernel_size=1, stride=1, padding=0),)]
-            self.grid_size = (self.grid_size[0]*2, self.grid_size[1]*2)
+        if pool:
+            self.layers += [nn.Sequential(NormActivationConv(out_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
+                                         nn.MaxPool2d(kernel_size=2, stride=2),)]
+            self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -642,19 +659,20 @@ class MaxVit(nn.Module):
                 norm_layer=nn.BatchNorm2d,
                 activation_layer=nn.ReLU,
                 bias=False,
-                inplace=None,
+                inplace=False,
             ),
             Conv2dNormActivation(
                 stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
             ),
+            
         )
 
         # account for stem stride
         self.partition_size = partition_size
         input_size = (input_size[0]//2, input_size[1]//2)
         self.encoder_stages = len(block_channels)
-        block_channels = block_channels + block_channels[::-1][1:]
-        block_layers = block_layers + block_layers[::-1][1:]
+        block_channels = block_channels + block_channels[::-1]
+        block_layers = block_layers + block_layers[::-1]
         
         # blocks
         self.blocks = nn.ModuleList()
@@ -684,8 +702,9 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
-                    pool = True if idx < self.encoder_stages else False,
-                    proj = True if idx >= self.encoder_stages - 1 else False,
+                    mode = "encode" if idx < self.encoder_stages - 1 else "decode" if idx >= self.encoder_stages else "bottleneck" 
+                    pool = True if idx < self.encoder_stages - 1 else False,
+                    proj = True if idx > self.encoder_stages else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
@@ -724,13 +743,19 @@ class MaxVit(nn.Module):
                 if skips_left < self.encoder_stages:
                     skips.insert(0, x)
                     skips_left += 1
-            else:
-                x = torch.cat([x, skips[-skips_left]], dim = 1)
+
+            if block_idx == self.encoder_stages:
                 x = block(x)
+                x = torch.cat([skips[-skips_left], x, dim = 1)
+                skips_left -= 1
+                
+            else:
+                x = block(x)
+                x = torch.cat([skips[-skips_left], x], dim = 1)
                 skips_left -= 1
             block_idx += 1
         
-        x = torch.cat([x, skips[-skips_left]], dim = 1)
+        x = torch.cat([skips[-skips_left], x], dim = 1)
         skips_left -= 1
         x = self.end_stem(x)
         return x
