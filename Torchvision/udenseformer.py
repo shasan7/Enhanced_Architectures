@@ -415,7 +415,7 @@ class MaxVitLayer(nn.Module):
         # partitioning parameters
         partition_size: int,
         grid_size: tuple[int, int],
-        mode = str,
+        mode: str,
     ) -> None:
         super().__init__()
         
