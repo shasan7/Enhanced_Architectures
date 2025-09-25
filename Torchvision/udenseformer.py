@@ -71,8 +71,8 @@ class MBConv(nn.Module):
     Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
-        expansion_ratio (float): Expansion ratio in the bottleneck.
-        squeeze_ratio (float): Squeeze ratio in the SE Layer.
+        bn_size (float): Expansion ratio in the bottleneck.
+        growth_rate (float): New channels/features each layer produces.
         stride (int): Stride of the depthwise convolution.
         activation_layer (Callable[..., nn.Module]): Activation function.
         norm_layer (Callable[..., nn.Module]): Normalization function.
@@ -83,8 +83,8 @@ class MBConv(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        expansion_ratio: float,
-        squeeze_ratio: float,
+        bn_size: float,
+        growth_rate: float,
         stride: int,
         activation_layer: Callable[..., nn.Module],
         norm_layer: Callable[..., nn.Module],
@@ -384,8 +384,8 @@ class MaxVitLayer(nn.Module):
     Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
-        expansion_ratio (float): Expansion ratio in the bottleneck.
-        squeeze_ratio (float): Squeeze ratio in the SE Layer.
+        bn_size (float): Expansion ratio in the bottleneck.
+        growth_rate (float): New channels/features each layer produces.
         stride (int): Stride of the depthwise convolution.
         activation_layer (Callable[..., nn.Module]): Activation function.
         norm_layer (Callable[..., nn.Module]): Normalization function.
@@ -403,8 +403,8 @@ class MaxVitLayer(nn.Module):
         # conv parameters
         in_channels: int,
         out_channels: int,
-        squeeze_ratio: float,
-        expansion_ratio: float,
+        growth_rate: float,
+        bn_size: float,
         stride: int,
         # conv + transformer parameters
         norm_layer: Callable[..., nn.Module],
@@ -421,6 +421,7 @@ class MaxVitLayer(nn.Module):
         mode = str,
     ) -> None:
         super().__init__()
+        
         self.mode = mode
 
         layers: OrderedDict = OrderedDict()
@@ -438,7 +439,7 @@ class MaxVitLayer(nn.Module):
         )
         # attention layers, block -> grid
         layers["window_attention"] = PartitionAttentionLayer(
-            in_channels=out_channels,
+            in_channels=growth_rate,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="window",
@@ -451,7 +452,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         layers["grid_attention"] = PartitionAttentionLayer(
-            in_channels=out_channels,
+            in_channels=growth_rate,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="grid",
@@ -491,8 +492,8 @@ class MaxVitBlock(nn.Module):
      Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
-        expansion_ratio (float): Expansion ratio in the bottleneck.
-        squeeze_ratio (float): Squeeze ratio in the SE Layer.
+        bn_size (float): Expansion ratio in the bottleneck.
+        growth_rate (float): New channels/features each layer produces.
         activation_layer (Callable[..., nn.Module]): Activation function.
         norm_layer (Callable[..., nn.Module]): Normalization function.
         head_dim (int): Dimension of the attention heads.
@@ -511,8 +512,8 @@ class MaxVitBlock(nn.Module):
         # conv parameters
         in_channels: int,
         out_channels: int,
-        squeeze_ratio: float,
-        expansion_ratio: float,
+        growth_rate: float,
+        bn_size: float,
         # conv + transformer parameters
         norm_layer: Callable[..., nn.Module],
         activation_layer: Callable[..., nn.Module],
@@ -548,8 +549,8 @@ class MaxVitBlock(nn.Module):
                 MaxVitLayer(
                     in_channels=in_channels if idx == 0 else out_channels + idx * growth_rate,
                     out_channels=out_channels + idx * growth_rate,
-                    squeeze_ratio=squeeze_ratio,
-                    expansion_ratio=expansion_ratio,
+                    growth_rate=growth_rate,
+                    bn_size=bn_size,
                     stride=1,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
@@ -591,8 +592,8 @@ class MaxVit(nn.Module):
         block_channels (List[int]): Number of channels in each block.
         block_layers (List[int]): Number of layers in each block.
         stochastic_depth_prob (float): Probability of stochastic depth. Expands to a list of probabilities for each layer that scales linearly to the specified value.
-        squeeze_ratio (float): Squeeze ratio in the SE Layer. Default: 0.25.
-        expansion_ratio (float): Expansion ratio in the MBConv bottleneck. Default: 4.
+        bn_size (float): Expansion ratio in the bottleneck. Default: 4.
+        growth_rate (float): New channels/features each layer produces. Default: 32.
         norm_layer (Callable[..., nn.Module]): Normalization function. Default: None (setting to None will produce a `BatchNorm2d(eps=1e-3, momentum=0.01)`).
         activation_layer (Callable[..., nn.Module]): Activation function Default: nn.GELU.
         head_dim (int): Dimension of the attention heads.
@@ -622,8 +623,8 @@ class MaxVit(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
-        squeeze_ratio: float = 0.25,
-        expansion_ratio: float = 4,
+        growth_rate: float = 32,
+        bn_size: float = 4,
         # transformer parameters
         mlp_ratio: int = 4,
         mlp_dropout: float = 0.0,
@@ -709,7 +710,7 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
-                    mode = "encode" if idx < self.encoder_stages - 1 else "decode" if idx >= self.encoder_stages else "bottleneck" 
+                    mode = "encode" if idx < self.encoder_stages else "decode",
                     pool = True if idx < self.encoder_stages - 1 else False,
                     proj = True if idx > self.encoder_stages else False,
                 ),
