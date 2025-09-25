@@ -528,9 +528,9 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
-        mode = str,
-        proj: bool,
-        pool: bool,
+        mode = str = None,
+        pool: bool = None,
+        proj: bool = None,
     ) -> None:
         super().__init__()
         if not len(p_stochastic) == n_layers:
@@ -540,7 +540,7 @@ class MaxVitBlock(nn.Module):
         # account for the first stride of the first layer
         self.grid_size = input_grid_size
 
-        if proj:
+        if proj is not None and proj:
             self.layers += [nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),]
             self.grid_size = (self.grid_size[0] * 2, self.grid_size[1] * 2)
 
@@ -565,7 +565,7 @@ class MaxVitBlock(nn.Module):
                 ),
             ]
 
-        if pool:
+        if pool is not None and pool:
             self.layers += [nn.Sequential(NormActivationConv(out_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
                                          nn.MaxPool2d(kernel_size=2, stride=2),)]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
@@ -684,7 +684,7 @@ class MaxVit(nn.Module):
         
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = [stem_channels] + block_channels[:-1]
+        in_channels = [stem_channels] + [x + y * growth_rate for x, y in zip(block_channels[:-1], block_layers[:-1])]
         out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
@@ -711,8 +711,8 @@ class MaxVit(nn.Module):
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                     mode = "encode" if idx < self.encoder_stages else "decode",
-                    proj = True if idx > self.encoder_stages else False,
                     pool = True if idx < self.encoder_stages - 1 else False,
+                    proj = True if idx > self.encoder_stages else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
