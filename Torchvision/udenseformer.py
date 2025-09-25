@@ -538,8 +538,8 @@ class MaxVitBlock(nn.Module):
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else out_channels + idx * growth_rate,
-                    out_channels=out_channels + idx * growth_rate,
+                    in_channels=in_channels if idx == 0 else in_channels + idx * growth_rate if mode == "encode" else in_channels - idx * growth_rate if mode == "decode",
+                    out_channels=in_channels + idx * growth_rate if mode == "encode" else in_channels - idx * growth_rate if mode == "decode",
                     growth_rate=growth_rate,
                     bn_size=bn_size,
                     stride=1,
@@ -557,7 +557,7 @@ class MaxVitBlock(nn.Module):
             ]
 
         if pool:
-            self.layers += [nn.Sequential(NormActivationConv(out_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
+            self.layers += [nn.Sequential(NormActivationConv(in_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
                                          nn.MaxPool2d(kernel_size=2, stride=2),)]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
