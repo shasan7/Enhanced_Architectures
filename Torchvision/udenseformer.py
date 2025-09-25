@@ -538,7 +538,7 @@ class MaxVitBlock(nn.Module):
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else in_channels + idx * growth_rate if mode == "encode" else in_channels - idx * growth_rate if mode == "decode",
+                    in_channels=in_channels if idx == 0 else (in_channels + idx * growth_rate if mode == "encode" else in_channels - idx * growth_rate if mode == "decode"),
                     out_channels=in_channels + idx * growth_rate if mode == "encode" else in_channels - idx * growth_rate if mode == "decode",
                     growth_rate=growth_rate,
                     bn_size=bn_size,
