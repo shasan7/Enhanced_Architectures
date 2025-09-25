@@ -755,7 +755,7 @@ class MaxVit(nn.Module):
 
             elif block_idx == self.encoder_stages:
                 x = block(x)
-                x = torch.cat([skips[-skips_left], x, dim = 1)
+                x = torch.cat([skips[-skips_left], x], dim = 1)
                 skips_left -= 1
                 
             else:
