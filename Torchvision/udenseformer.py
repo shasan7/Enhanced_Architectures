@@ -674,6 +674,9 @@ class MaxVit(nn.Module):
         
         # blocks
         self.blocks = nn.ModuleList()
+
+        in_channels = []
+        out_channels = []
         
         k = 1
 
