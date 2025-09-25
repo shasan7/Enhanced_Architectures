@@ -74,8 +74,6 @@ class MBConv(nn.Module):
         bn_size (float): Expansion ratio in the bottleneck.
         growth_rate (float): New channels/features each layer produces.
         stride (int): Stride of the depthwise convolution.
-        activation_layer (Callable[..., nn.Module]): Activation function.
-        norm_layer (Callable[..., nn.Module]): Normalization function.
         p_stochastic_dropout (float): Probability of stochastic depth.
     """
 
@@ -86,8 +84,6 @@ class MBConv(nn.Module):
         bn_size: float,
         growth_rate: float,
         stride: int,
-        activation_layer: Callable[..., nn.Module],
-        norm_layer: Callable[..., nn.Module],
         p_stochastic_dropout: float = 0.0,
     ) -> None:
         super().__init__()
@@ -427,11 +423,9 @@ class MaxVitLayer(nn.Module):
         layers["MBconv"] = MBConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            bn_size: bn_size,
-            growth_rate: growth_rate,
+            bn_size=bn_size,
+            growth_rate=growth_rate,
             stride=stride,
-            activation_layer=activation_layer,
-            norm_layer=norm_layer,
             p_stochastic_dropout=p_stochastic_dropout,
         )
         # attention layers, block -> grid
@@ -695,8 +689,8 @@ class MaxVit(nn.Module):
                 MaxVitBlock(
                     in_channels=in_channel,
                     out_channels=out_channel,
-                    bn_size: bn_size,
-                    growth_rate: growth_rate,
+                    bn_size=bn_size,
+                    growth_rate=growth_rate,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
