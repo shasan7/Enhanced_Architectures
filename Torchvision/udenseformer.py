@@ -427,8 +427,8 @@ class MaxVitLayer(nn.Module):
         layers["MBconv"] = MBConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            bn_size: float,
-            growth_rate: float,
+            bn_size: bn_size,
+            growth_rate: growth_rate,
             stride=stride,
             activation_layer=activation_layer,
             norm_layer=norm_layer,
