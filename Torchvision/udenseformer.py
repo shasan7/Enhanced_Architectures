@@ -539,6 +539,10 @@ class MaxVitBlock(nn.Module):
         # account for the first stride of the first layer
         self.grid_size = input_grid_size
 
+        if proj:
+            self.layers += [nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),]
+            self.grid_size = (self.grid_size[0] * 2, self.grid_size[1] * 2)
+
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
@@ -662,14 +666,17 @@ class MaxVit(nn.Module):
                 inplace=False,
             ),
             Conv2dNormActivation(
-                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
+                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
             ),
-            
+            NormActivationConv(
+                stem_channels, block_channels[0], 1, stride=1, padding=0,
+            ),
+            nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
         # account for stem stride
         self.partition_size = partition_size
-        input_size = (input_size[0]//2, input_size[1]//2)
+        input_size = (input_size[0]//4, input_size[1]//4)
         self.encoder_stages = len(block_channels)
         block_channels = block_channels + block_channels[::-1]
         block_layers = block_layers + block_layers[::-1]
@@ -744,7 +751,7 @@ class MaxVit(nn.Module):
                     skips.insert(0, x)
                     skips_left += 1
 
-            if block_idx == self.encoder_stages:
+            elif block_idx == self.encoder_stages:
                 x = block(x)
                 x = torch.cat([skips[-skips_left], x, dim = 1)
                 skips_left -= 1
