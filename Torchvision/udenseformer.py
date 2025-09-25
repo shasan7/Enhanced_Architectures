@@ -695,8 +695,8 @@ class MaxVit(nn.Module):
                 MaxVitBlock(
                     in_channels=in_channel,
                     out_channels=out_channel,
-                    bn_size: float,
-                    growth_rate: float,
+                    bn_size: bn_size,
+                    growth_rate: growth_rate,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
