@@ -670,13 +670,29 @@ class MaxVit(nn.Module):
         self.partition_size = partition_size
         input_size = (input_size[0]//4, input_size[1]//4)
         self.encoder_stages = len(block_channels)
-        block_channels = block_channels + block_channels[::-1]
-        block_layers = block_layers + block_layers[::-1]
+
         
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = [block_channels[0]] + block_channels[:-1]
-        out_channels = block_channels
+        
+        k = 1
+
+        for i in range(2 * self.encoder_stages):
+            if i < self.encoder_stages - 1:
+                in_channels.append(block_channels[i])
+                out_channels.append((block_channels[i] + block_layers[i] * growth_rate)//2) # simply grows like densenet
+            elif i == self.encoder_stages - 1:
+                in_channels.append(block_channels[i])
+                out_channels.append(block_channels[i] + block_layers[i] * growth_rate) # encoder bottleneck, doesn't reduce out_channels to half like prevs
+            elif i == self.encoder_stages:
+                in_channels.append(out_channels[-1])
+                out_channels.append(in_channels[-1] - block_layers[-1] * growth_rate) # decoder bottleneck, progressive channel reduction starts from here
+            elif i > self.encoder_stages:
+                in_channels.append(out_channels[-1] + block_channels[-k]) # concats skips with input, so in_channels increases
+                out_channels.append(in_channels[-1] - block_layers[-1-k] * growth_rate) # progressively reduces channels
+                k += 1
+
+        block_layers = block_layers + block_layers[::-1]
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
         # since we have N blocks with L layers, we will have N * L probabilities uniformly distributed
