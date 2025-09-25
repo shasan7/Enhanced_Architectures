@@ -92,9 +92,6 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
-        mid_channels = int(out_channels * expansion_ratio)
-        sqz_channels = int(out_channels * squeeze_ratio)
-
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
         else:
