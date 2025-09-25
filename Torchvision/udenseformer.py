@@ -711,7 +711,7 @@ class MaxVit(nn.Module):
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
         # for why there is Linear -> Tanh -> Linear
-        self.proj = nn.sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+        self.proj = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
                                NormActivationConv(
                 out_channels[-1], stem_channels, kernel_size=1, stride=1, padding=0,
             ),)   
