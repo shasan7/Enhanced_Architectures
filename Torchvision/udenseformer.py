@@ -416,6 +416,8 @@ class MaxVitLayer(nn.Module):
         super().__init__()
         
         self.mode = mode
+        self.bn_size = bn_size
+        self.growth_rate = growth_rate
 
         layers: OrderedDict = OrderedDict()
 
@@ -470,7 +472,7 @@ class MaxVitLayer(nn.Module):
             x = torch.cat([x_prev, x_new], dim=1)
 
         elif self.mode == "decode":
-            x_prev = x[:, 2 * bn_size * growth_rate:, :, :]
+            x_prev = x[:, 2 * self.bn_size * self.growth_rate:, :, :]
             x_new = self.layers(x)
             x = torch.cat([x_prev, x_new], dim=1) 
         return x
