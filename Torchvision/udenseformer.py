@@ -675,7 +675,7 @@ class MaxVit(nn.Module):
         
         # blocks
         self.blocks = nn.ModuleList()
-        in_channels = [stem_channels] + [x + y * growth_rate for x, y in zip(block_channels[:-1], block_layers[:-1])]
+        in_channels = block_channels[0] + block_channels[:-1]
         out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
