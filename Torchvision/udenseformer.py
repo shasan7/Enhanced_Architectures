@@ -528,9 +528,9 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
-        mode = str = None,
-        pool: bool = None,
-        proj: bool = None,
+        mode: str,
+        pool: bool,
+        proj: bool,
     ) -> None:
         super().__init__()
         if not len(p_stochastic) == n_layers:
@@ -540,7 +540,7 @@ class MaxVitBlock(nn.Module):
         # account for the first stride of the first layer
         self.grid_size = input_grid_size
 
-        if proj is not None and proj:
+        if proj:
             self.layers += [nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),]
             self.grid_size = (self.grid_size[0] * 2, self.grid_size[1] * 2)
 
@@ -565,7 +565,7 @@ class MaxVitBlock(nn.Module):
                 ),
             ]
 
-        if pool is not None and pool:
+        if pool:
             self.layers += [nn.Sequential(NormActivationConv(out_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
                                          nn.MaxPool2d(kernel_size=2, stride=2),)]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
