@@ -430,8 +430,8 @@ class MaxVitLayer(nn.Module):
         layers["MBconv"] = MBConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            expansion_ratio=expansion_ratio,
-            squeeze_ratio=squeeze_ratio,
+            bn_size: float,
+            growth_rate: float,
             stride=stride,
             activation_layer=activation_layer,
             norm_layer=norm_layer,
@@ -698,8 +698,8 @@ class MaxVit(nn.Module):
                 MaxVitBlock(
                     in_channels=in_channel,
                     out_channels=out_channel,
-                    squeeze_ratio=squeeze_ratio,
-                    expansion_ratio=expansion_ratio,
+                    bn_size: float,
+                    growth_rate: float,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
