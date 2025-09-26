@@ -671,6 +671,19 @@ class MaxVit(nn.Module):
         self.partition_size = partition_size
         input_size = (input_size[0]//4, input_size[1]//4)
         self.encoder_stages = len(block_channels)
+        growth_list = [growth_rate]
+
+        growth_list = [growth_rate]
+
+        for i  in range(1, 2 * self.encoder_stages):
+            if i < self.encoder_stages:
+                growth_list.append(growth_list[-1] * 2)
+                
+            elif i == self.encoder_stages:
+                growth_list.append(growth_list[-1])
+                
+            else:
+                growth_list.append(growth_list[-1] // 2)
 
         
         # blocks
@@ -684,16 +697,16 @@ class MaxVit(nn.Module):
         for i in range(2 * self.encoder_stages):
             if i < self.encoder_stages - 1:
                 in_channels.append(block_channels[i])
-                out_channels.append((block_channels[i] + block_layers[i] * growth_rate)//2) # simply grows like densenet
+                out_channels.append((block_channels[i] + block_layers[i] * growth_list[i])//2) # simply grows like densenet
             elif i == self.encoder_stages - 1:
                 in_channels.append(block_channels[i])
-                out_channels.append(block_channels[i] + block_layers[i] * growth_rate) # encoder bottleneck, doesn't reduce out_channels to half like prevs
+                out_channels.append(block_channels[i] + block_layers[i] * growth_list[i]) # encoder bottleneck, doesn't reduce out_channels to half like prevs
             elif i == self.encoder_stages:
                 in_channels.append(out_channels[-1])
-                out_channels.append(in_channels[-1] - block_layers[-1] * growth_rate) # decoder bottleneck, progressive channel reduction starts from here
+                out_channels.append(in_channels[-1] - block_layers[-1] * growth_list[i]) # decoder bottleneck, progressive channel reduction starts from here
             elif i > self.encoder_stages:
                 in_channels.append(out_channels[-1] + block_channels[-k]) # concats skips with input, so in_channels increases
-                out_channels.append(in_channels[-1] - block_layers[-1-k] * growth_rate) # progressively reduces channels
+                out_channels.append(in_channels[-1] - block_layers[-1-k] * growth_list[i]) # progressively reduces channels
                 k += 1
 
         block_layers = block_layers + block_layers[::-1]
@@ -704,7 +717,7 @@ class MaxVit(nn.Module):
         p_stochastic = np.linspace(0, stochastic_depth_prob, sum(block_layers)).tolist()
 
         p_idx = 0
-        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(in_channels, out_channels, block_layers)):
+        for idx, (in_channel, out_channel, num_layers, growth_rate) in enumerate(zip(in_channels, out_channels, block_layers, growth_list)):
             self.blocks.append(
                 MaxVitBlock(
                     in_channels=in_channel,
