@@ -684,6 +684,8 @@ class MaxVit(nn.Module):
                 growth_list.append(growth_list[-1] // 2)
 
         
+        divisor = (block_channels[0] + block_layers[0] * growth_list[0])//block_channels[1]
+        
         # blocks
         self.blocks = nn.ModuleList()
 
@@ -695,7 +697,7 @@ class MaxVit(nn.Module):
         for i in range(2 * self.encoder_stages):
             if i < self.encoder_stages - 1:
                 in_channels.append(block_channels[i])
-                out_channels.append((block_channels[i] + block_layers[i] * growth_list[i])//2) # simply grows like densenet
+                out_channels.append((block_channels[i] + block_layers[i] * growth_list[i])//divisor) # simply grows like densenet
             elif i == self.encoder_stages - 1:
                 in_channels.append(block_channels[i])
                 out_channels.append(block_channels[i] + block_layers[i] * growth_list[i]) # encoder bottleneck, doesn't reduce out_channels to half like prevs
