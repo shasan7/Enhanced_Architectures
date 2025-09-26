@@ -731,12 +731,12 @@ class MaxVit(nn.Module):
             p_idx += num_layers
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
-        # for why there is Linear -> Tanh -> Linear
-        self.proj = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                               NormActivationConv(
-                out_channels[-1], stem_channels, kernel_size=1, stride=1, padding=0,
-            ),)   
+        # for why there is Linear -> Tanh -> Linear 
         self.end_stem = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                               NormActivationConv(
+                out_channels[-1] + block_channels[0], stem_channels, kernel_size=1, stride=1, padding=0,
+            ),
             NormActivationConv(
                 stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
             ),
@@ -777,7 +777,6 @@ class MaxVit(nn.Module):
                     skips_left -= 1
             block_idx += 1
         
-        x = self.proj(x)
         x = torch.cat([skips[-skips_left], x], dim = 1)
         skips_left -= 1
         x = self.end_stem(x)
