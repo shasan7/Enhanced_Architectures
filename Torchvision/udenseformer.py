@@ -673,8 +673,6 @@ class MaxVit(nn.Module):
         self.encoder_stages = len(block_channels)
         growth_list = [growth_rate]
 
-        growth_list = [growth_rate]
-
         for i  in range(1, 2 * self.encoder_stages):
             if i < self.encoder_stages:
                 growth_list.append(growth_list[-1] * 2)
@@ -717,13 +715,13 @@ class MaxVit(nn.Module):
         p_stochastic = np.linspace(0, stochastic_depth_prob, sum(block_layers)).tolist()
 
         p_idx = 0
-        for idx, (in_channel, out_channel, num_layers, growth_rate) in enumerate(zip(in_channels, out_channels, block_layers, growth_list)):
+        for idx, (in_channel, out_channel, num_layers, growth) in enumerate(zip(in_channels, out_channels, block_layers, growth_list)):
             self.blocks.append(
                 MaxVitBlock(
                     in_channels=in_channel,
                     out_channels=out_channel,
                     bn_size=bn_size,
-                    growth_rate=growth_rate,
+                    growth_rate=growth,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
