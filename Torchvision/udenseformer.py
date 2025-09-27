@@ -94,22 +94,22 @@ class MBConv(nn.Module):
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        """_layers["conv_a"] = NormActivationConv(
+        _layers["conv_a"] = NormActivationConv(
             in_channels,
             bn_size * growth_rate,
             kernel_size=1,
             stride=1,
             padding=0,
-        )"""
+        )
         _layers["conv_b"] = NormActivationConv(
-            in_channels,
-            growth_rate,
+            bn_size * growth_rate,
+            bn_size * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            # groups = bn_size * growth_rate,
+            groups = bn_size * growth_rate,
         )
-        """_layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)"""
+        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
 
         self.layers = nn.Sequential(_layers)
 
@@ -559,7 +559,8 @@ class MaxVitBlock(nn.Module):
             ]
 
         if pool:
-            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            self.layers += [nn.Sequential(NormActivationConv(in_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
+                                         nn.MaxPool2d(kernel_size=2, stride=2),)]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -744,7 +745,10 @@ class MaxVit(nn.Module):
         self.end_stem = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             NormActivationConv(
-                out_channels[-1] + block_channels[0], stem_channels, kernel_size=3, stride=1, padding=1,
+                out_channels[-1] + block_channels[0], stem_channels, kernel_size=1, stride=1, padding=0,
+            ),
+            NormActivationConv(
+                stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
             ),
             NormActivationConv(
                 stem_channels,
