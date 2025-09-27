@@ -54,7 +54,6 @@ class NormActivationConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
         super().__init__()
 
-        self.dilation = dilation
         self.norm = nn.BatchNorm2d(in_channels)
         self.activation = nn.ReLU(inplace=False)
         self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
