@@ -662,9 +662,6 @@ class MaxVit(nn.Module):
             Conv2dNormActivation(
                 stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
             ),
-            NormActivationConv(
-                stem_channels, block_channels[0], kernel_size=3, stride=1, padding=1,
-            ),
         )
 
         # account for stem stride
@@ -714,7 +711,7 @@ class MaxVit(nn.Module):
         self.end_stem = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             NormActivationConv(
-                out_channels[-1], stem_channels, kernel_size=3, stride=1, padding=1,
+                out_channels[-1], stem_channels, kernel_size=1, stride=1, padding=0,
             ),
             NormActivationConv(
                 stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
