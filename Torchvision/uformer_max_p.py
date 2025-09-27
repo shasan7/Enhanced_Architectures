@@ -723,7 +723,6 @@ class MaxVit(nn.Module):
                 stride=1,
                 padding=1,
             ),
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
         )
 
         self._init_weights()
