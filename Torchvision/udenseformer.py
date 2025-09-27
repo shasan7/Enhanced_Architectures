@@ -97,37 +97,32 @@ class MBConv(nn.Module):
         _layers["conv_a"] = NormActivationConv(
             in_channels,
             4 * growth_rate,
-            kernel_size=1,
+            kernel_size=3,
             stride=1,
-            padding=0,
+            padding=1,
         )
         _layers["conv_b"] = NormActivationConv(
             4 * growth_rate,
-            4 * growth_rate,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            # groups = 4 * growth_rate,
-        )
-        _layers["conv_c"] = NormActivationConv(in_channels=4 * growth_rate, out_channels=3 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
-        _layers["conv_d"] = NormActivationConv(
-            3 * growth_rate,
             3 * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            # groups = 3 * growth_rate,
         )
-        _layers["conv_e"] = NormActivationConv(in_channels=3 * growth_rate, out_channels=2 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
-        _layers["conv_f"] = NormActivationConv(
-            2 * growth_rate,
+        _layers["conv_c"] = NormActivationConv(
+            3 * growth_rate,
             2 * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            # groups = 2 * growth_rate,
         )
-        _layers["conv_g"] = NormActivationConv(in_channels=2 * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
+         _layers["conv_d"] = NormActivationConv(
+            2 * growth_rate,
+            growth_rate,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias = True,
+        )
 
         self.layers = nn.Sequential(_layers)
 
@@ -490,7 +485,7 @@ class MaxVitLayer(nn.Module):
             x = torch.cat([x_prev, x_new], dim=1)
 
         elif self.mode == "decode":
-            x_prev = x[:, : - 4 * self.growth_rate, :, :]
+            x_prev = x[:, 4 * self.growth_rate:, :, :]
             x_new = self.layers(x)
             x = torch.cat([ x_new, x_prev], dim=1) 
         return x
@@ -677,7 +672,10 @@ class MaxVit(nn.Module):
                 inplace=False,
             ),
             Conv2dNormActivation(
-                stem_channels, block_channels[0], 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
+                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
+            ),
+            NormActivationConv(
+                stem_channels,block_channels[0], kernel_size=3, stride=1, padding=1,
             ),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
@@ -751,7 +749,7 @@ class MaxVit(nn.Module):
         self.end_stem = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             NormActivationConv(
-                out_channels[-1] + block_channels[0], stem_channels, kernel_size=1, stride=1, padding=0,
+                out_channels[-1] + block_channels[0], stem_channels, kernel_size=3, stride=1, padding=1,
             ),
             NormActivationConv(
                 stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
