@@ -120,7 +120,7 @@ class MBConv(nn.Module):
             stride=1,
             padding=1,
             dilation = True,
-            groups = 4 * growth_rate,
+            # groups = 4 * growth_rate,
         )
         _layers["conv_c"] = NormActivationConv(in_channels=4 * growth_rate, out_channels=3 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
         _layers["conv_d"] = NormActivationConv(
@@ -130,7 +130,7 @@ class MBConv(nn.Module):
             stride=1,
             padding=1,
             dilation = True,
-            groups = 3 * growth_rate,
+            # groups = 3 * growth_rate,
         )
         _layers["conv_e"] = NormActivationConv(in_channels=3 * growth_rate, out_channels=2 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
         _layers["conv_f"] = NormActivationConv(
@@ -140,7 +140,7 @@ class MBConv(nn.Module):
             stride=1,
             padding=1,
             dilation = True,
-            groups = 2 * growth_rate,
+            # groups = 2 * growth_rate,
         )
         _layers["conv_g"] = NormActivationConv(in_channels=2 * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
 
