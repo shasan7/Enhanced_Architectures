@@ -51,29 +51,18 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     return relative_coords.sum(-1)
 
 class NormActivationConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False, dilation = False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
         super().__init__()
 
         self.dilation = dilation
         self.norm = nn.BatchNorm2d(in_channels)
         self.activation = nn.ReLU(inplace=False)
-        if not dilation:
-            self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
-        else:
-            self.branch1 = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, dilation = 1, padding = 1 * padding, groups = groups, bias = bias)
-            self.branch2 = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, dilation = 2, padding = 2 * padding, groups = groups, bias = bias)
-            self.branch3 = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, dilation = 3, padding = 3 * padding, groups = groups, bias = bias)
-    
+        self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
+        
     def forward(self, x):
         x = self.norm(x)
         x = self.activation(x)
-        if not self.dilation:
-            x = self.conv(x)
-        else:
-            x1 = self.branch1(x)
-            x2 = self.branch2(x)
-            x3 = self.branch3(x)
-            x = x1 + x2 + x3
+        x = self.conv(x)
         return x
 
 
@@ -119,7 +108,6 @@ class MBConv(nn.Module):
             kernel_size=3,
             stride=1,
             padding=1,
-            dilation = True,
             # groups = 4 * growth_rate,
         )
         _layers["conv_c"] = NormActivationConv(in_channels=4 * growth_rate, out_channels=3 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
@@ -129,7 +117,6 @@ class MBConv(nn.Module):
             kernel_size=3,
             stride=1,
             padding=1,
-            dilation = True,
             # groups = 3 * growth_rate,
         )
         _layers["conv_e"] = NormActivationConv(in_channels=3 * growth_rate, out_channels=2 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
@@ -139,7 +126,6 @@ class MBConv(nn.Module):
             kernel_size=3,
             stride=1,
             padding=1,
-            dilation = True,
             # groups = 2 * growth_rate,
         )
         _layers["conv_g"] = NormActivationConv(in_channels=2 * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
