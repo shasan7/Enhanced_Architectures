@@ -107,7 +107,7 @@ class MBConv(nn.Module):
             kernel_size=3,
             stride=1,
             padding=1,
-            # groups = bn_size * growth_rate,
+            groups = bn_size * growth_rate,
         )
         _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
 
