@@ -616,7 +616,7 @@ class MaxVit(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
-        growth_rate: float = 64,
+        growth_rate: float = 32,
         bn_size: float = 4,
         # transformer parameters
         mlp_ratio: int = 4,
@@ -671,18 +671,12 @@ class MaxVit(nn.Module):
         self.encoder_stages = len(block_channels)
         growth_list = [growth_rate]
 
-        for i  in range(1, 2 * self.encoder_stages):
+        for i  in range(1, 2 * self.encoder_stages - 1):
             if i < self.encoder_stages:
                 growth_list.append(growth_list[-1] * 2)
                 
-            elif i == self.encoder_stages:
-                growth_list.append(growth_list[-1])
-                
             else:
                 growth_list.append(growth_list[-1] // 2)
-
-        
-        divisor = (block_channels[0] + block_layers[0] * growth_list[0])//block_channels[1]
         
         # blocks
         self.blocks = nn.ModuleList()
@@ -692,22 +686,17 @@ class MaxVit(nn.Module):
         
         k = 1
 
-        for i in range(2 * self.encoder_stages):
-            if i < self.encoder_stages - 1:
+        for i in range(2 * self.encoder_stages - 1):
+            if i < self.encoder_stages:
                 in_channels.append(block_channels[i])
-                out_channels.append((block_channels[i] + block_layers[i] * growth_list[i])//divisor) # simply grows like densenet
-            elif i == self.encoder_stages - 1:
-                in_channels.append(block_channels[i])
-                out_channels.append(block_channels[i] + block_layers[i] * growth_list[i]) # encoder bottleneck, doesn't reduce out_channels to half like prevs
-            elif i == self.encoder_stages:
-                in_channels.append(out_channels[-1])
-                out_channels.append(in_channels[-1] - block_layers[-1] * growth_list[i]) # decoder bottleneck, progressive channel reduction starts from here
-            elif i > self.encoder_stages:
-                in_channels.append(out_channels[-1] + block_channels[-k]) # concats skips with input, so in_channels increases
-                out_channels.append(in_channels[-1] - block_layers[-1-k] * growth_list[i]) # progressively reduces channels
+                out_channels.append(block_channels[i] + block_layers[i] * growth_list[i]) # simply grows like densenet
+            
+            else:
+                in_channels.append(out_channels[-2 * k] + block_channels[-k]) # concats skips with input, so in_channels increases
+                out_channels.append(in_channels[-1] - 3 * block_layers[-1-k] * growth_list[i]) # progressively reduces channels
                 k += 1
 
-        block_layers = block_layers + block_layers[::-1]
+        block_layers = block_layers + block_layers[::-1][1:]
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
         # since we have N blocks with L layers, we will have N * L probabilities uniformly distributed
@@ -734,7 +723,7 @@ class MaxVit(nn.Module):
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
                     mode = "encode" if idx < self.encoder_stages else "decode",
                     pool = True if idx < self.encoder_stages - 1 else False,
-                    proj = True if idx > self.encoder_stages else False,
+                    proj = True if idx >= self.encoder_stages else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
@@ -771,14 +760,15 @@ class MaxVit(nn.Module):
         for block in self.blocks:
             if block_idx < self.encoder_stages:
                 x = block(x)
+                if block_idx == self.encoder_stages - 2:
+                    channels_to_drop = x.shape[1]
+                if block_idx == self.encoder_stages - 1:
+                    x = x[:, channels_to_drop:, :, :]
+                    x = torch.cat([skips[-skips_left], x], dim = 1)
+                    skips_left -= 1
                 if skips_left < self.encoder_stages:
                     skips.insert(0, x)
                     skips_left += 1
-
-            elif block_idx == self.encoder_stages:
-                x = block(x)
-                x = torch.cat([skips[-skips_left], x], dim = 1)
-                skips_left -= 1
                 
             else:
                 x = block(x)
