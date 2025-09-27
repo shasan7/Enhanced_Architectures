@@ -522,10 +522,10 @@ class MaxVitBlock(nn.Module):
         self.layers = nn.ModuleList()
         # account for the first stride of the first layer
         self.grid_size = input_grid_size
+        self.layers += [NormActivationConv(in_channels, out_channels, kernel_size=1, stride=1, padding=0),]
 
         if pool:
-            self.layers += [NormActivationConv(in_channels, out_channels, kernel_size=1, stride=1, padding=0), 
-                            nn.MaxPool2d(kernel_size=2, stride=2),]
+            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2),]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
         for idx, p in enumerate(p_stochastic):
