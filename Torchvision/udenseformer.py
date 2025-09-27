@@ -115,7 +115,7 @@ class MBConv(nn.Module):
             stride=1,
             padding=1,
         )
-         _layers["conv_d"] = NormActivationConv(
+        _layers["conv_d"] = NormActivationConv(
             2 * growth_rate,
             growth_rate,
             kernel_size=3,
