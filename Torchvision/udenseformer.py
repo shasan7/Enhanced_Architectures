@@ -51,13 +51,19 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     return relative_coords.sum(-1)
 
 class NormActivationConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False, dilation = False):
         super().__init__()
         
         self.norm = nn.BatchNorm2d(in_channels)
         self.activation = nn.ReLU(inplace=False)
-        self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
-
+        if not dilation:
+            self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
+        else:
+            self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
+             + nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, dilation = 2, padding = 2 * padding, groups = groups, bias = bias)
+             + nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, dilation = 3, padding = 3 * padding, groups = groups, bias = bias)
+    
+    
     def forward(self, x):
         x = self.norm(x)
         x = self.activation(x)
@@ -96,29 +102,41 @@ class MBConv(nn.Module):
         _layers = OrderedDict()
         _layers["conv_a"] = NormActivationConv(
             in_channels,
-            bn_size * growth_rate,
+            4 * growth_rate,
             kernel_size=1,
             stride=1,
             padding=0,
         )
         _layers["conv_b"] = NormActivationConv(
-            bn_size * growth_rate,
-            bn_size * growth_rate,
+            4 * growth_rate,
+            4 * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            groups = bn_size * growth_rate,
+            dilation = True,
+            groups = 4 * growth_rate,
         )
-        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=(bn_size//2) * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
+        _layers["conv_c"] = NormActivationConv(in_channels=4 * growth_rate, out_channels=3 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
         _layers["conv_d"] = NormActivationConv(
-            (bn_size//2) * growth_rate,
-            (bn_size//2) * growth_rate,
+            3 * growth_rate,
+            3 * growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            groups = (bn_size//2) * growth_rate,
+            dilation = True,
+            groups = 3 * growth_rate,
         )
-        _layers["conv_e"] = NormActivationConv(in_channels=(bn_size//2) * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
+        _layers["conv_e"] = NormActivationConv(in_channels=3 * growth_rate, out_channels=2 * growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
+        _layers["conv_f"] = NormActivationConv(
+            2 * growth_rate,
+            2 * growth_rate,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dilation = True,
+            groups = 2 * growth_rate,
+        )
+        _layers["conv_g"] = NormActivationConv(in_channels=2 * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=False)
 
         self.layers = nn.Sequential(_layers)
 
