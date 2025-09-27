@@ -51,7 +51,7 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
     return relative_coords.sum(-1)
 
 class NormActivationConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, groups = 1, bias = False):
         super().__init__()
         
         self.norm = nn.BatchNorm2d(in_channels)
@@ -64,7 +64,19 @@ class NormActivationConv(nn.Module):
         x = self.conv(x)
         return x
 
-
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        
+        self.layer = NormActivationConv(in_channels, out_channels)
+    
+    def forward(self, x):
+        res = x
+        x = self.layer(x)
+        x = self.layer(x)
+        return res + x
+        
+        
 class MBConv(nn.Module):
     """MBConv: Mobile Inverted Residual Bottleneck.
 
@@ -92,36 +104,13 @@ class MBConv(nn.Module):
     ) -> None:
         super().__init__()
 
-        mid_channels = int(out_channels * expansion_ratio)
-        sqz_channels = int(out_channels * squeeze_ratio)
-
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
         else:
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["conv_a"] = NormActivationConv(
-            in_channels,
-            (in_channels + out_channels)//2,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-        )
-        _layers["conv_b"] = NormActivationConv(
-            (in_channels + out_channels)//2,
-            (in_channels + out_channels)//2,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-        )
-        _layers["conv_c"] = NormActivationConv(
-            (in_channels + out_channels)//2,
-            out_channels,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-        )
+        _layers["conv"] = ResBlock(in_channels, out_channels)
 
         self.layers = nn.Sequential(_layers)
 
@@ -535,13 +524,14 @@ class MaxVitBlock(nn.Module):
         self.grid_size = input_grid_size
 
         if pool:
-            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2),]
+            self.layers += [NormActivationConv(in_channels, out_channels, kernel_size=1, stride=1, padding=0), 
+                            nn.MaxPool2d(kernel_size=2, stride=2),]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else out_channels,
+                    in_channels=out_channels,
                     out_channels=out_channels,
                     squeeze_ratio=squeeze_ratio,
                     expansion_ratio=expansion_ratio,
