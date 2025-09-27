@@ -559,8 +559,7 @@ class MaxVitBlock(nn.Module):
             ]
 
         if pool:
-            self.layers += ["""nn.Sequential(NormActivationConv(in_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),"""
-                                         nn.MaxPool2d(kernel_size=2, stride=2),)]
+            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -662,9 +661,6 @@ class MaxVit(nn.Module):
             Conv2dNormActivation(
                 stem_channels, block_channels[0], 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
             ),
-            """NormActivationConv(
-                stem_channels, block_channels[0], 1, stride=1, padding=0,
-            ),"""
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
@@ -747,9 +743,6 @@ class MaxVit(nn.Module):
         # for why there is Linear -> Tanh -> Linear 
         self.end_stem = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            """NormActivationConv(
-                out_channels[-1] + block_channels[0], stem_channels, kernel_size=1, stride=1, padding=0,
-            )""",
             NormActivationConv(
                 out_channels[-1] + block_channels[0], stem_channels, kernel_size=3, stride=1, padding=1,
             ),
