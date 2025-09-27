@@ -94,22 +94,22 @@ class MBConv(nn.Module):
             self.stochastic_depth = nn.Identity()  # type: ignore
 
         _layers = OrderedDict()
-        _layers["conv_a"] = NormActivationConv(
+        """_layers["conv_a"] = NormActivationConv(
             in_channels,
             bn_size * growth_rate,
             kernel_size=1,
             stride=1,
             padding=0,
-        )
+        )"""
         _layers["conv_b"] = NormActivationConv(
-            bn_size * growth_rate,
-            bn_size * growth_rate,
+            in_channels,
+            growth_rate,
             kernel_size=3,
             stride=1,
             padding=1,
-            groups = bn_size * growth_rate,
+            # groups = bn_size * growth_rate,
         )
-        _layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)
+        """_layers["conv_c"] = NormActivationConv(in_channels=bn_size * growth_rate, out_channels=growth_rate, kernel_size=1, stride=1, padding=0, bias=True)"""
 
         self.layers = nn.Sequential(_layers)
 
@@ -559,7 +559,7 @@ class MaxVitBlock(nn.Module):
             ]
 
         if pool:
-            self.layers += [nn.Sequential(NormActivationConv(in_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),
+            self.layers += ["""nn.Sequential(NormActivationConv(in_channels + n_layers * growth_rate, out_channels, kernel_size=1, stride=1, padding=0),"""
                                          nn.MaxPool2d(kernel_size=2, stride=2),)]
             self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
@@ -660,11 +660,11 @@ class MaxVit(nn.Module):
                 inplace=False,
             ),
             Conv2dNormActivation(
-                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
+                stem_channels, block_channels[0], 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
             ),
-            NormActivationConv(
+            """NormActivationConv(
                 stem_channels, block_channels[0], 1, stride=1, padding=0,
-            ),
+            ),"""
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
@@ -747,11 +747,11 @@ class MaxVit(nn.Module):
         # for why there is Linear -> Tanh -> Linear 
         self.end_stem = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                               NormActivationConv(
+            """NormActivationConv(
                 out_channels[-1] + block_channels[0], stem_channels, kernel_size=1, stride=1, padding=0,
-            ),
+            )""",
             NormActivationConv(
-                stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
+                out_channels[-1] + block_channels[0], stem_channels, kernel_size=3, stride=1, padding=1,
             ),
             NormActivationConv(
                 stem_channels,
