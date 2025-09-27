@@ -490,9 +490,9 @@ class MaxVitLayer(nn.Module):
             x = torch.cat([x_prev, x_new], dim=1)
 
         elif self.mode == "decode":
-            x_prev = x[:, 4 * self.growth_rate:, :, :]
+            x_prev = x[:, : - 4 * self.growth_rate, :, :]
             x_new = self.layers(x)
-            x = torch.cat([x_prev, x_new], dim=1) 
+            x = torch.cat([ x_new, x_prev], dim=1) 
         return x
 
 
