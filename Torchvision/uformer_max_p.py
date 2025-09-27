@@ -53,11 +53,11 @@ def _get_relative_position_index(height: int, width: int) -> torch.Tensor:
 class NormActivationConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, groups = 1, bias = False):
         super().__init__()
-
+        
         self.norm = nn.BatchNorm2d(in_channels)
         self.activation = nn.ReLU(inplace=False)
         self.conv = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = stride, padding = padding, groups = groups, bias = bias)
-        
+
     def forward(self, x):
         x = self.norm(x)
         x = self.activation(x)
@@ -71,9 +71,11 @@ class MBConv(nn.Module):
     Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
-        bn_size (float): Expansion ratio in the bottleneck.
-        growth_rate (float): New channels/features each layer produces.
+        expansion_ratio (float): Expansion ratio in the bottleneck.
+        squeeze_ratio (float): Squeeze ratio in the SE Layer.
         stride (int): Stride of the depthwise convolution.
+        activation_layer (Callable[..., nn.Module]): Activation function.
+        norm_layer (Callable[..., nn.Module]): Normalization function.
         p_stochastic_dropout (float): Probability of stochastic depth.
     """
 
@@ -81,12 +83,17 @@ class MBConv(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        bn_size: float,
-        growth_rate: float,
+        expansion_ratio: float,
+        squeeze_ratio: float,
         stride: int,
+        activation_layer: Callable[..., nn.Module],
+        norm_layer: Callable[..., nn.Module],
         p_stochastic_dropout: float = 0.0,
     ) -> None:
         super().__init__()
+
+        mid_channels = int(out_channels * expansion_ratio)
+        sqz_channels = int(out_channels * squeeze_ratio)
 
         if p_stochastic_dropout:
             self.stochastic_depth = StochasticDepth(p_stochastic_dropout, mode="row")  # type: ignore
@@ -96,32 +103,24 @@ class MBConv(nn.Module):
         _layers = OrderedDict()
         _layers["conv_a"] = NormActivationConv(
             in_channels,
-            4 * growth_rate,
+            (in_channels + out_channels)//2,
             kernel_size=3,
             stride=1,
             padding=1,
         )
         _layers["conv_b"] = NormActivationConv(
-            4 * growth_rate,
-            3 * growth_rate,
+            (in_channels + out_channels)//2,
+            (in_channels + out_channels)//2,
             kernel_size=3,
             stride=1,
             padding=1,
         )
         _layers["conv_c"] = NormActivationConv(
-            3 * growth_rate,
-            2 * growth_rate,
+            (in_channels + out_channels)//2,
+            out_channels,
             kernel_size=3,
             stride=1,
             padding=1,
-        )
-        _layers["conv_d"] = NormActivationConv(
-            2 * growth_rate,
-            growth_rate,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            bias = True,
         )
 
         self.layers = nn.Sequential(_layers)
@@ -375,7 +374,7 @@ class PartitionAttentionLayer(nn.Module):
 
         x = self.partition_op(x, self.p)
         x = self.partition_swap(x)
-        x = x + self.stochastic_dropout(self.attn_layer(x))
+        x = x + self.stochastic_dropout(self.attn_layer(x)) + self.stochastic_dropout(self.attn_layer(x.permute(0, 2, 3, 1).reshape(B, -1).reshape(B, C, H, W))) + self.stochastic_dropout(self.attn_layer(x.permute(0, 3, 2, 1).reshape(B, -1).reshape(B, C, H, W)))
         x = x + self.stochastic_dropout(self.mlp_layer(x))
         x = self.departition_swap(x)
         x = self.departition_op(x, self.p, gh, gw)
@@ -390,8 +389,8 @@ class MaxVitLayer(nn.Module):
     Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
-        bn_size (float): Expansion ratio in the bottleneck.
-        growth_rate (float): New channels/features each layer produces.
+        expansion_ratio (float): Expansion ratio in the bottleneck.
+        squeeze_ratio (float): Squeeze ratio in the SE Layer.
         stride (int): Stride of the depthwise convolution.
         activation_layer (Callable[..., nn.Module]): Activation function.
         norm_layer (Callable[..., nn.Module]): Normalization function.
@@ -409,8 +408,8 @@ class MaxVitLayer(nn.Module):
         # conv parameters
         in_channels: int,
         out_channels: int,
-        growth_rate: float,
-        bn_size: float,
+        squeeze_ratio: float,
+        expansion_ratio: float,
         stride: int,
         # conv + transformer parameters
         norm_layer: Callable[..., nn.Module],
@@ -424,13 +423,8 @@ class MaxVitLayer(nn.Module):
         # partitioning parameters
         partition_size: int,
         grid_size: tuple[int, int],
-        mode: str,
     ) -> None:
         super().__init__()
-        
-        self.mode = mode
-        self.bn_size = bn_size
-        self.growth_rate = growth_rate
 
         layers: OrderedDict = OrderedDict()
 
@@ -438,14 +432,16 @@ class MaxVitLayer(nn.Module):
         layers["MBconv"] = MBConv(
             in_channels=in_channels,
             out_channels=out_channels,
-            bn_size=bn_size,
-            growth_rate=growth_rate,
+            expansion_ratio=expansion_ratio,
+            squeeze_ratio=squeeze_ratio,
             stride=stride,
+            activation_layer=activation_layer,
+            norm_layer=norm_layer,
             p_stochastic_dropout=p_stochastic_dropout,
         )
         # attention layers, block -> grid
         layers["window_attention"] = PartitionAttentionLayer(
-            in_channels=growth_rate,
+            in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="window",
@@ -458,7 +454,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         layers["grid_attention"] = PartitionAttentionLayer(
-            in_channels=growth_rate,
+            in_channels=out_channels,
             head_dim=head_dim,
             partition_size=partition_size,
             partition_type="grid",
@@ -479,15 +475,7 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, C, H, W).
         """
-        if self.mode == "encode":
-            x_prev = x
-            x_new = self.layers(x)
-            x = torch.cat([x_prev, x_new], dim=1)
-
-        elif self.mode == "decode":
-            x_prev = x[:, 4 * self.growth_rate:, :, :]
-            x_new = self.layers(x)
-            x = torch.cat([ x_new, x_prev], dim=1) 
+        x = self.layers(x)
         return x
 
 
@@ -498,8 +486,8 @@ class MaxVitBlock(nn.Module):
      Args:
         in_channels (int): Number of input channels.
         out_channels (int): Number of output channels.
-        bn_size (float): Expansion ratio in the bottleneck.
-        growth_rate (float): New channels/features each layer produces.
+        expansion_ratio (float): Expansion ratio in the bottleneck.
+        squeeze_ratio (float): Squeeze ratio in the SE Layer.
         activation_layer (Callable[..., nn.Module]): Activation function.
         norm_layer (Callable[..., nn.Module]): Normalization function.
         head_dim (int): Dimension of the attention heads.
@@ -518,8 +506,8 @@ class MaxVitBlock(nn.Module):
         # conv parameters
         in_channels: int,
         out_channels: int,
-        growth_rate: float,
-        bn_size: float,
+        squeeze_ratio: float,
+        expansion_ratio: float,
         # conv + transformer parameters
         norm_layer: Callable[..., nn.Module],
         activation_layer: Callable[..., nn.Module],
@@ -534,7 +522,6 @@ class MaxVitBlock(nn.Module):
         # number of layers
         n_layers: int,
         p_stochastic: list[float],
-        mode: str,
         pool: bool,
         proj: bool,
     ) -> None:
@@ -546,17 +533,17 @@ class MaxVitBlock(nn.Module):
         # account for the first stride of the first layer
         self.grid_size = input_grid_size
 
-        if proj:
-            self.layers += [nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),]
-            self.grid_size = (self.grid_size[0] * 2, self.grid_size[1] * 2)
+        if pool:
+            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2),]
+            self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
 
         for idx, p in enumerate(p_stochastic):
             self.layers += [
                 MaxVitLayer(
-                    in_channels=in_channels if idx == 0 else in_channels + idx * growth_rate if mode == "encode" else in_channels - 3 * idx * growth_rate,
-                    out_channels=in_channels + idx * growth_rate if mode == "encode" else in_channels - 3 * idx * growth_rate,
-                    growth_rate=growth_rate,
-                    bn_size=bn_size,
+                    in_channels=in_channels if idx == 0 else out_channels,
+                    out_channels=out_channels,
+                    squeeze_ratio=squeeze_ratio,
+                    expansion_ratio=expansion_ratio,
                     stride=1,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
@@ -567,13 +554,13 @@ class MaxVitBlock(nn.Module):
                     partition_size=partition_size,
                     grid_size=self.grid_size,
                     p_stochastic_dropout=p,
-                    mode = mode,
                 ),
             ]
 
-        if pool:
-            self.layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-            self.grid_size = (self.grid_size[0]//2, self.grid_size[1]//2)
+        if proj:
+            self.layers += [nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
+                                          NormActivationConv(out_channels, out_channels//2, kernel_size=1, stride=1, padding=0),)]
+            self.grid_size = (self.grid_size[0]*2, self.grid_size[1]*2)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -597,8 +584,8 @@ class MaxVit(nn.Module):
         block_channels (List[int]): Number of channels in each block.
         block_layers (List[int]): Number of layers in each block.
         stochastic_depth_prob (float): Probability of stochastic depth. Expands to a list of probabilities for each layer that scales linearly to the specified value.
-        bn_size (float): Expansion ratio in the bottleneck. Default: 4.
-        growth_rate (float): New channels/features each layer produces. Default: 32.
+        squeeze_ratio (float): Squeeze ratio in the SE Layer. Default: 0.25.
+        expansion_ratio (float): Expansion ratio in the MBConv bottleneck. Default: 4.
         norm_layer (Callable[..., nn.Module]): Normalization function. Default: None (setting to None will produce a `BatchNorm2d(eps=1e-3, momentum=0.01)`).
         activation_layer (Callable[..., nn.Module]): Activation function Default: nn.GELU.
         head_dim (int): Dimension of the attention heads.
@@ -628,8 +615,8 @@ class MaxVit(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
         activation_layer: Callable[..., nn.Module] = nn.GELU,
         # conv parameters
-        growth_rate: float = 32,
-        bn_size: float = 4,
+        squeeze_ratio: float = 0.25,
+        expansion_ratio: float = 4,
         # transformer parameters
         mlp_ratio: int = 4,
         mlp_dropout: float = 0.0,
@@ -672,46 +659,24 @@ class MaxVit(nn.Module):
                 inplace=False,
             ),
             Conv2dNormActivation(
-                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False,
+                stem_channels, stem_channels, 3, stride=1, norm_layer=None, activation_layer=None, bias=False
             ),
             NormActivationConv(
-                stem_channels,block_channels[0], kernel_size=3, stride=1, padding=1,
+                stem_channels, out_channels[-1], kernel_size=3, stride=1, padding=1,
             ),
-            nn.MaxPool2d(kernel_size=2, stride=2),
         )
 
         # account for stem stride
         self.partition_size = partition_size
-        input_size = (input_size[0]//4, input_size[1]//4)
+        input_size = (input_size[0]//2, input_size[1]//2)
         self.encoder_stages = len(block_channels)
-        growth_list = [growth_rate]
-
-        for i  in range(1, 2 * self.encoder_stages - 1):
-            if i < self.encoder_stages:
-                growth_list.append(growth_list[-1] * 2)
-                
-            else:
-                growth_list.append(growth_list[-1] // 2)
+        block_channels = block_channels + block_channels[::-1][1:]
+        block_layers = block_layers + block_layers[::-1][1:]
         
         # blocks
         self.blocks = nn.ModuleList()
-
-        in_channels = []
-        out_channels = []
-        
-        k = 1
-
-        for i in range(2 * self.encoder_stages - 1):
-            if i < self.encoder_stages:
-                in_channels.append(block_channels[i])
-                out_channels.append(block_channels[i] + block_layers[i] * growth_list[i]) # simply grows like densenet
-            
-            else:
-                in_channels.append(out_channels[-2 * k] + block_channels[-k]) # concats skips with input, so in_channels increases
-                out_channels.append(in_channels[-1] - 3 * block_layers[-1-k] * growth_list[i]) # progressively reduces channels
-                k += 1
-
-        block_layers = block_layers + block_layers[::-1][1:]
+        in_channels = [stem_channels] + block_channels[:-1]
+        out_channels = block_channels
 
         # precompute the stochastich depth probabilities from 0 to stochastic_depth_prob
         # since we have N blocks with L layers, we will have N * L probabilities uniformly distributed
@@ -719,13 +684,13 @@ class MaxVit(nn.Module):
         p_stochastic = np.linspace(0, stochastic_depth_prob, sum(block_layers)).tolist()
 
         p_idx = 0
-        for idx, (in_channel, out_channel, num_layers, growth) in enumerate(zip(in_channels, out_channels, block_layers, growth_list)):
+        for idx, (in_channel, out_channel, num_layers) in enumerate(zip(in_channels, out_channels, block_layers)):
             self.blocks.append(
                 MaxVitBlock(
                     in_channels=in_channel,
                     out_channels=out_channel,
-                    bn_size=bn_size,
-                    growth_rate=growth,
+                    squeeze_ratio=squeeze_ratio,
+                    expansion_ratio=expansion_ratio,
                     norm_layer=norm_layer,
                     activation_layer=activation_layer,
                     head_dim=head_dim,
@@ -736,20 +701,19 @@ class MaxVit(nn.Module):
                     input_grid_size=input_size,
                     n_layers=num_layers,
                     p_stochastic=p_stochastic[p_idx : p_idx + num_layers],
-                    mode = "encode" if idx < self.encoder_stages else "decode",
-                    pool = True if idx < self.encoder_stages - 1 else False,
-                    proj = True if idx >= self.encoder_stages else False,
+                    pool = True if idx < self.encoder_stages else False,
+                    proj = True if idx >= self.encoder_stages - 1 else False,
                 ),
             )
             input_size = self.blocks[-1].grid_size  # type: ignore[assignment]
             p_idx += num_layers
 
         # see https://github.com/google-research/maxvit/blob/da76cf0d8a6ec668cc31b399c4126186da7da944/maxvit/models/maxvit.py#L1137-L1158
-        # for why there is Linear -> Tanh -> Linear 
+        # for why there is Linear -> Tanh -> Linear
         self.end_stem = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
             NormActivationConv(
-                out_channels[-1] + block_channels[0], stem_channels, kernel_size=3, stride=1, padding=1,
+                out_channels[-1], stem_channels, kernel_size=3, stride=1, padding=1,
             ),
             NormActivationConv(
                 stem_channels, stem_channels, kernel_size=3, stride=1, padding=1,
@@ -775,25 +739,16 @@ class MaxVit(nn.Module):
         for block in self.blocks:
             if block_idx < self.encoder_stages:
                 x = block(x)
-                if block_idx == self.encoder_stages - 2:
-                    channels_to_drop = x.shape[1]
-                if block_idx == self.encoder_stages - 1:
-                    x = x[:, channels_to_drop:, :, :]
-                    x = torch.cat([skips[-skips_left], x], dim = 1)
                 if skips_left < self.encoder_stages:
                     skips.insert(0, x)
                     skips_left += 1
-                
             else:
-                if block_idx == self.encoder_stages:
-                    skips_left -= 1
+                x = torch.cat([x, skips[-skips_left]], dim = 1)
                 x = block(x)
-                if skips_left > 1:
-                    x = torch.cat([skips[-skips_left], x], dim = 1)
-                    skips_left -= 1
+                skips_left -= 1
             block_idx += 1
         
-        x = torch.cat([skips[-skips_left], x], dim = 1)
+        x = torch.cat([x, skips[-skips_left]], dim = 1)
         skips_left -= 1
         x = self.end_stem(x)
         return x
