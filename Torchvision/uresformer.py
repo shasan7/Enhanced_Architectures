@@ -376,7 +376,7 @@ class PartitionAttentionLayer(nn.Module):
         x = self.partition_op(x, self.p)
         x = self.partition_swap(x)
         B, C, H, W = x.shape
-        x = x + self.stochastic_dropout(self.attn_layer(x))
+        x = x + self.stochastic_dropout(self.attn_layer(x)) + self.stochastic_dropout(self.attn_layer(x.permute(0, 2, 3, 1).reshape(B, -1).reshape(B, C, H, W))) + self.stochastic_dropout(self.attn_layer(x.permute(0, 3, 2, 1).reshape(B, -1).reshape(B, C, H, W)))
         x = x + self.stochastic_dropout(self.mlp_layer(x))
         x = self.departition_swap(x)
         x = self.departition_op(x, self.p, gh, gw)
