@@ -64,19 +64,34 @@ class NormActivationConv(nn.Module):
         x = self.conv(x)
         return x
 
+
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
+
+        # first BN-ReLU-Conv
+        self.conv1 = NormActivationConv(
+            in_channels=in_channels,
+            out_channels=out_channels,
+        )
+
+        # second BN-ReLU-Conv
+        self.conv2 = NormActivationConv(
+            in_channels=out_channels,
+            out_channels=out_channels,
+        )
         
-        self.layer = NormActivationConv(in_channels, out_channels)
-    
+        # self.skip = nn.Identity()
+
     def forward(self, x):
-        res = x
-        x = self.layer(x)
-        x = self.layer(x)
-        return res + x
+        # identity = self.skip(x)
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = out # + identity
+        return out
         
-        
+
+
 class MBConv(nn.Module):
     """MBConv: Mobile Inverted Residual Bottleneck.
 
@@ -360,6 +375,7 @@ class PartitionAttentionLayer(nn.Module):
 
         x = self.partition_op(x, self.p)
         x = self.partition_swap(x)
+        B, C, H, W = x.shape
         x = x + self.stochastic_dropout(self.attn_layer(x))
         x = x + self.stochastic_dropout(self.mlp_layer(x))
         x = self.departition_swap(x)
@@ -453,6 +469,7 @@ class MaxVitLayer(nn.Module):
             p_stochastic_dropout=p_stochastic_dropout,
         )
         self.layers = nn.Sequential(layers)
+        self.skip = nn.Identity()
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -461,8 +478,9 @@ class MaxVitLayer(nn.Module):
         Returns:
             Tensor: Output tensor of shape (B, C, H, W).
         """
+        res = self.skip(x)
         x = self.layers(x)
-        return x
+        return res + x
 
 
 class MaxVitBlock(nn.Module):
@@ -786,35 +804,3 @@ def _maxvit(
         input_size=input_size,
         **kwargs,
     )
-
-    if weights is not None:
-        model.load_state_dict(weights.get_state_dict(progress=progress, check_hash=True))
-
-    return model
-
-
-class MaxVit_T_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        # URL empty until official release
-        url="https://download.pytorch.org/models/maxvit_t-bc5ab103.pth",
-        transforms=partial(
-            ImageClassification, crop_size=224, resize_size=224, interpolation=InterpolationMode.BICUBIC
-        ),
-        meta={
-            "categories": _IMAGENET_CATEGORIES,
-            "num_params": 30919624,
-            "min_size": (224, 224),
-            "recipe": "https://github.com/pytorch/vision/tree/main/references/classification#maxvit",
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 83.700,
-                    "acc@5": 96.722,
-                }
-            },
-            "_ops": 5.558,
-            "_file_size": 118.769,
-            "_docs": """These weights reproduce closely the results of the paper using a similar training recipe.
-            They were trained with a BatchNorm2D momentum of 0.99 instead of the more correct 0.01.""",
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
